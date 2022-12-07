@@ -22,7 +22,10 @@ from typing import Iterable, List, Optional, Tuple, Union
 import numpy as np
 from transformers.utils import is_tf_available, is_torch_available
 
+from optimum.utils import is_diffusers_available
+
 from ...utils import logging
+from ..tasks import TasksManager
 from .base import OnnxConfig
 from .utils import MIN_TORCH_VERSION, get_encoder_decoder_models_for_export, is_torch_onnx_support_available
 
@@ -33,6 +36,9 @@ if is_torch_available():
 
 if is_tf_available():
     from transformers.modeling_tf_utils import TFPreTrainedModel
+
+if is_diffusers_available():
+    from diffusers import ModelMixin
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -432,6 +438,62 @@ def export_encoder_decoder_model(
     return outputs
 
 
+def export_stable_diffusion_model(
+    vae: Union["ModelMixin"],
+    text_encoder: Union["PretrainedModel"],
+    unet: Union["ModelMixin"],
+    save_directory: Path,
+    opset: int,
+    device: str = "cpu",
+) -> Tuple[List[List[str]], List[List[str]]]:
+    outputs = []
+
+    # Export VAE component
+    vae.forward = lambda latent_sample: vae.decode(z=latent_sample, return_dict=False)
+    vae_config_constructor = TasksManager.get_exporter_config_constructor("vae", "onnx", task="semantic-segmentation")
+    vae_onnx_config = vae_config_constructor(vae.config)
+    outputs.append(
+        export(
+            model=vae,
+            config=vae_onnx_config,
+            opset=opset or vae_onnx_config.DEFAULT_ONNX_OPSET,
+            output=save_directory.joinpath("vae_decoder/model.onnx"),
+            device=device,
+        )
+    )
+
+    # Export text encoder component
+    text_encoder_config_constructor = TasksManager.get_exporter_config_constructor("cliptext", "onnx", task="default")
+    text_encoder_onnx_config = text_encoder_config_constructor(text_encoder.config)
+    outputs.append(
+        export(
+            model=text_encoder,
+            config=text_encoder_onnx_config,
+            opset=opset or text_encoder_onnx_config.DEFAULT_ONNX_OPSET,
+            output=save_directory.joinpath("text_encoder/model.onnx"),
+            device=device,
+        )
+    )
+
+    # Export U-NET component
+    onnx_config_constructor = TasksManager.get_exporter_config_constructor(
+        "unet", "onnx", task="semantic-segmentation"
+    )
+    unet_onnx_config = onnx_config_constructor(unet.config)
+    outputs.append(
+        export(
+            model=unet,
+            config=unet_onnx_config,
+            opset=opset or unet_onnx_config.DEFAULT_ONNX_OPSET,
+            output=save_directory.joinpath("unet/model.onnx"),
+            device=device,
+        )
+    )
+
+    outputs = list(map(list, zip(*outputs)))
+    return outputs
+
+
 def export(
     model: Union["PreTrainedModel", "TFPreTrainedModel"],
     config: OnnxConfig,
@@ -464,6 +526,8 @@ def export(
             "Cannot convert because neither PyTorch nor TensorFlow are installed. "
             "Please install torch or tensorflow first."
         )
+
+    output.parent.mkdir(parents=True, exist_ok=True)
 
     if is_torch_available():
 

@@ -19,16 +19,22 @@ from pathlib import Path
 
 from transformers import AutoFeatureExtractor, AutoTokenizer
 
+from optimum.utils import is_diffusers_available
+
 from ...utils import logging
 from ..tasks import TasksManager
 from .base import OnnxConfigWithPast
 from .convert import (
     export,
     export_encoder_decoder_model,
+    export_stable_diffusion_model,
     validate_encoder_decoder_model_outputs,
     validate_model_outputs,
 )
 
+
+if is_diffusers_available():
+    from diffusers import OnnxRuntimeModel, OnnxStableDiffusionPipeline, StableDiffusionPipeline
 
 logger = logging.get_logger()  # pylint: disable=invalid-name
 logger.setLevel(logging.INFO)
@@ -90,6 +96,35 @@ def main():
     task = args.task
     if task == "auto":
         task = TasksManager.infer_task_from_model(args.model)
+    # TODO : infer stable-diffusion when auto
+    elif task == "stable-diffusion":
+        pipeline = StableDiffusionPipeline.from_pretrained(args.model)
+
+        onnx_inputs, onnx_outputs = export_stable_diffusion_model(
+            vae=pipeline.vae,
+            unet=pipeline.unet,
+            text_encoder=pipeline.text_encoder,
+            opset=args.opset,
+            save_directory=args.output.parent,
+        )
+
+        try:
+            onnx_pipeline = OnnxStableDiffusionPipeline(
+                vae_decoder=OnnxRuntimeModel.from_pretrained(args.output.parent / "vae_decoder"),
+                text_encoder=OnnxRuntimeModel.from_pretrained(args.output.parent / "text_encoder"),
+                unet=OnnxRuntimeModel.from_pretrained(args.output.parent / "unet"),
+                vae_encoder=None,
+                tokenizer=pipeline.tokenizer,
+                scheduler=pipeline.scheduler,
+                safety_checker=None,
+                feature_extractor=None,
+                requires_safety_checker=False,
+            )
+        except ValueError:
+            logger.error(f"An error occured, but the model was saved at: {args.output.parent.as_posix()}")
+            return
+        logger.info(f"All good, model saved at: {args.output.parent.as_posix()}")
+        return
 
     # Allocate the model
     model = TasksManager.get_model_from_task(task, args.model, framework=args.framework, cache_dir=args.cache_dir)
