@@ -250,18 +250,18 @@ class ORTModelDecoder(ORTModel):
                 The decoder with past key values model file name overwriting the default file name, allowing to save
                 the decoder model with a different name.
         """
+        save_directory = Path(save_directory)
         src_paths = [self.decoder_model_path]
-        dst_file_names = [decoder_file_name]
+        dst_paths = [save_directory / decoder_file_name]
 
         if self.use_cache:
             src_paths.append(self.decoder_with_past_model_path)
-            dst_file_names.append(decoder_with_past_file_name)
+            dst_paths.append(save_directory / decoder_with_past_file_name)
 
         # add external data paths in case of large models
-        src_paths, dst_file_names = _get_external_data_paths(src_paths, dst_file_names)
+        src_paths, dst_paths = _get_external_data_paths(src_paths, dst_paths)
 
-        for src_path, dst_file_name in zip(src_paths, dst_file_names):
-            dst_path = Path(save_directory) / dst_file_name
+        for src_path, dst_path in zip(src_paths, dst_paths):
             shutil.copyfile(src_path, dst_path)
 
     @classmethod
