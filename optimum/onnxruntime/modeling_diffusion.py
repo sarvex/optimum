@@ -52,8 +52,6 @@ from diffusers import DDIMScheduler, LMSDiscreteScheduler, PNDMScheduler, Config
 from PIL import Image
 
 
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -116,7 +114,6 @@ class ORTModelForStableDiffusion(ORTModel, ConfigMixin, ABC):
 
         return vae_decoder_session, text_encoder_session, unet_session
 
-
     def _save_pretrained(
         self,
         save_directory: Union[str, Path],
@@ -147,7 +144,6 @@ class ORTModelForStableDiffusion(ORTModel, ConfigMixin, ABC):
         self.scheduler.save_pretrained(save_directory.joinpath("scheduler"))
         if self.feature_extractor is not None:
             self.feature_extractor.save_pretrained(save_directory.joinpath("feature_extractor"))
-        
 
     @classmethod
     def _from_pretrained(
@@ -177,7 +173,16 @@ class ORTModelForStableDiffusion(ORTModel, ConfigMixin, ABC):
 
         if not os.path.isdir(model_id):
             allow_patterns = [os.path.join(k, "*") for k in config.keys() if not k.startswith("_")]
-            allow_patterns +=  list({text_encoder_file_name, unet_file_name, vae_decoder_file_name, SCHEDULER_CONFIG_NAME, CONFIG_NAME, cls.config_name})
+            allow_patterns += list(
+                {
+                    text_encoder_file_name,
+                    unet_file_name,
+                    vae_decoder_file_name,
+                    SCHEDULER_CONFIG_NAME,
+                    CONFIG_NAME,
+                    cls.config_name,
+                }
+            )
             # Download all allow_patterns
             model_id = snapshot_download(
                 model_id,
@@ -534,7 +539,7 @@ class ORTModelForStableDiffusion(ORTModel, ConfigMixin, ABC):
             return (image, has_nsfw_concept)
 
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
-    
+
     def progress_bar(self, iterable=None, total=None):
         if not hasattr(self, "_progress_bar_config"):
             self._progress_bar_config = {}
@@ -568,19 +573,20 @@ class ORTModelForStableDiffusion(ORTModel, ConfigMixin, ABC):
 
 
 class ORTModelTextEncoder(ORTModelPart):
-    def forward(self, input_ids : np.ndarray):
+    def forward(self, input_ids: np.ndarray):
         onnx_inputs = {
             "input_ids": input_ids,
         }
         outputs = self.session.run(None, onnx_inputs)
         return outputs
 
+
 class ORTModelUnet(ORTModelPart):
     def __init__(self, session: ort.InferenceSession, parent_model: "ORTModel"):
         super().__init__(session, parent_model)
         self.input_dtype = {inputs.name: ORT_TO_NP_TYPE[inputs.type] for inputs in self.session.get_inputs()}
 
-    def forward(self, sample: np.ndarray, timestep : np.ndarray, encoder_hidden_states : np.ndarray):
+    def forward(self, sample: np.ndarray, timestep: np.ndarray, encoder_hidden_states: np.ndarray):
         onnx_inputs = {
             "sample": sample,
             "timestep": timestep,
@@ -588,6 +594,7 @@ class ORTModelUnet(ORTModelPart):
         }
         outputs = self.session.run(None, onnx_inputs)
         return outputs
+
 
 class ORTModelVaeDecoder(ORTModelPart):
     def forward(self, latent_sample: np.ndarray):
