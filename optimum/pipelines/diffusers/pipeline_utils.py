@@ -19,9 +19,6 @@ from PIL import Image
 from tqdm.auto import tqdm
 
 
-logger = logging.getLogger(__name__)
-
-
 class DiffusionPipelineMixin(ConfigMixin):
     # Copied from https://github.com/huggingface/diffusers/blob/v0.12.1/src/diffusers/pipelines/pipeline_utils.py#L812
     @staticmethod

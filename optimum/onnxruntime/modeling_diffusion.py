@@ -22,7 +22,7 @@ from ..exporters.onnx import (
 )
 from ..exporters.tasks import TasksManager
 from ..onnx.utils import _get_external_data_paths
-from ..pipelines.pipeline_stable_diffusion import StableDiffusionPipelineMixin
+from ..pipelines.diffusers.pipeline_stable_diffusion import StableDiffusionPipelineMixin
 from .base import ORTModelPart
 from .modeling_ort import ORTModel
 from .utils import (
@@ -37,9 +37,7 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
-class ORTModelForStableDiffusion(ORTModel, StableDiffusionPipelineMixin):
-    """ """
-
+class ORTStableDiffusionPipeline(ORTModel, StableDiffusionPipelineMixin):
     auto_model_class = StableDiffusionPipeline
     main_input_name = "input_ids"
     base_model_prefix = "onnx_model"
@@ -58,11 +56,34 @@ class ORTModelForStableDiffusion(ORTModel, StableDiffusionPipelineMixin):
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         **kwargs,
     ):
+        """
+        Args:
+            vae_decoder_session (`ort.InferenceSession`):
+                The ONNX Runtime inference session associated to the VAE decoder.
+            text_encoder_session (`ort.InferenceSession`):
+                The ONNX Runtime inference session associated to the text encoder.
+            unet_session (`ort.InferenceSession`):
+                The ONNX Runtime inference session associated to the U-NET.
+            tokenizer (`CLIPTokenizer`):
+                Tokenizer of class
+                [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
+            scheduler (`Union[DDIMScheduler, PNDMScheduler, LMSDiscreteScheduler]`):
+                A scheduler to be used in combination with the U-NET component to denoise the encoded image latents.
+            feature_extractor ([`CLIPFeatureExtractor`]):
+                A model extracting features from generated images to be used as inputs for the `safety_checker`
+            config ([`PretrainedConfig`]):
+                `config` is an instance of the configuration associated to the model. Initializing with a config file
+                does not load the weights associated with the model, only the configuration.
+            use_io_binding (`bool`, *optional*, defaults to `None`):
+                Whether use IOBinding during inference to avoid memory copy between the host and devices. Defaults to
+                `True` if the device is CUDA, otherwise defaults to `False`.
+            model_save_dir (`str`, *optional*, defaults to `""`):
+                The directory under which the model exported to ONNX was saved.
+        """
         self.shared_attributes_init(
             vae_decoder_session,
             use_io_binding=use_io_binding,
             model_save_dir=model_save_dir,
-            preprocessors=None,
         )
         self.vae_decoder = ORTModelVaeDecoder(vae_decoder_session, self)
         self.vae_decoder_model_path = Path(vae_decoder_session._model_path)
@@ -89,6 +110,26 @@ class ORTModelForStableDiffusion(ORTModel, StableDiffusionPipelineMixin):
         session_options: Optional[ort.SessionOptions] = None,
         provider_options: Optional[Dict] = None,
     ):
+        """
+        Creates three inference sessions for respectively the vae decoder, the text encoder and the unet models.
+        The default provider is `CPUExecutionProvider` to match the default behaviour in PyTorch/TensorFlow/JAX.
+
+        Args:
+            vae_decoder_path (`Union[str, Path]`):
+                The path of the VAE decoder ONNX model.
+            text_encoder_path (`Union[str, Path]`):
+                The path of the text encoder ONNX model.
+            unet_path (`Union[str, Path]`):
+                The path of the U-NET ONNX model.
+            provider (`str`, *optional*, defaults to `"CPUExecutionProvider"`):
+                ONNX Runtime provider to use for loading the model. See https://onnxruntime.ai/docs/execution-providers/
+                for possible providers.
+            session_options (`Optional[ort.SessionOptions]`, *optional*),:
+                ONNX Runtime session options to use for loading the model. Defaults to `None`.
+            provider_options (`Optional[Dict]`, *optional*):
+                Provider option dictionary corresponding to the provider used. See available options
+                for each provider: https://onnxruntime.ai/docs/api/c/group___global.html . Defaults to `None`.
+        """
         vae_decoder_session = ORTModel.load_model(vae_decoder_path, provider, session_options, provider_options)
         text_encoder_session = ORTModel.load_model(text_encoder_path, provider, session_options, provider_options)
         unet_session = ORTModel.load_model(unet_path, provider, session_options, provider_options)
@@ -98,16 +139,34 @@ class ORTModelForStableDiffusion(ORTModel, StableDiffusionPipelineMixin):
     def _save_pretrained(
         self,
         save_directory: Union[str, Path],
+        vae_decoder_file_name: str = ONNX_WEIGHTS_NAME,
         text_encoder_file_name: str = ONNX_WEIGHTS_NAME,
         unet_file_name: str = ONNX_WEIGHTS_NAME,
-        vae_decoder_file_name: str = ONNX_WEIGHTS_NAME,
         **kwargs,
     ):
+        """
+        Saves the vae decoder, the text encoder and the unet subcomponents as well as the model configuration to a
+        directory, so that it can be re-loaded using the
+        [`~optimum.onnxruntime.modeling_diffusion.ORT.ORTStableDiffusionPipeline`] class method.
+
+        Args:
+            save_directory (`Union[str, Path`]):
+                The directory where to save the model files.
+            vae_decoder_file_name (`str`, defaults to `optimum.onnxruntime.utils.ONNX_WEIGHTS_NAME`):
+                The VAE decoder model file name. Overwrites the default file name and allows one to save the VAE decoder model
+                with a different name.
+            text_encoder_file_name (`str`, defaults to `optimum.onnxruntime.utils.ONNX_WEIGHTS_NAME`):
+                The text encoder model file name. Overwrites the default file name and allows one to save the text encoder model
+                with a different name.
+            unet_file_name (`str`, defaults to `optimum.onnxruntime.ONNX_WEIGHTS_NAME`):
+                The U-NET model file name. Overwrites the default file name and allows one to save the U-NET model
+                with a different name.
+        """
         save_directory = Path(save_directory)
         src_to_dst_path = {
+            self.vae_decoder_model_path: save_directory / "vae_decoder" / vae_decoder_file_name,
             self.text_encoder_model_path: save_directory / "text_encoder" / text_encoder_file_name,
             self.unet_model_path: save_directory / "unet" / unet_file_name,
-            self.vae_decoder_model_path: save_directory / "vae_decoder" / vae_decoder_file_name,
         }
 
         # TODO: Modify _get_external_data_paths to give dictionnary
@@ -134,9 +193,9 @@ class ORTModelForStableDiffusion(ORTModel, StableDiffusionPipelineMixin):
         use_auth_token: Optional[Union[bool, str]] = None,
         revision: Optional[str] = None,
         cache_dir: Optional[str] = None,
+        vae_decoder_file_name: str = ONNX_WEIGHTS_NAME,
         text_encoder_file_name: str = ONNX_WEIGHTS_NAME,
         unet_file_name: str = ONNX_WEIGHTS_NAME,
-        vae_decoder_file_name: str = ONNX_WEIGHTS_NAME,
         local_files_only: bool = False,
         provider: str = "CPUExecutionProvider",
         session_options: Optional[ort.SessionOptions] = None,
@@ -154,9 +213,9 @@ class ORTModelForStableDiffusion(ORTModel, StableDiffusionPipelineMixin):
             allow_patterns = [os.path.join(k, "*") for k in config.keys() if not k.startswith("_")]
             allow_patterns += list(
                 {
+                    vae_decoder_file_name,
                     text_encoder_file_name,
                     unet_file_name,
-                    vae_decoder_file_name,
                     SCHEDULER_CONFIG_NAME,
                     CONFIG_NAME,
                     cls.config_name,
@@ -184,14 +243,10 @@ class ORTModelForStableDiffusion(ORTModel, StableDiffusionPipelineMixin):
             else:
                 sub_models[name] = load_method(new_model_save_dir)
 
-        text_encoder_path = new_model_save_dir / "text_encoder" / text_encoder_file_name
-        unet_path = new_model_save_dir / "unet" / unet_file_name
-        vae_decoder_path = new_model_save_dir / "vae_decoder" / vae_decoder_file_name
-
         inference_sessions = cls.load_model(
-            vae_decoder_path=vae_decoder_path,
-            text_encoder_path=text_encoder_path,
-            unet_path=unet_path,
+            vae_decoder_path=new_model_save_dir / "vae_decoder" / vae_decoder_file_name,
+            text_encoder_path=new_model_save_dir / "text_encoder" / text_encoder_file_name,
+            unet_path=new_model_save_dir / "unet" / unet_file_name,
             provider=provider,
             session_options=session_options,
             provider_options=provider_options,
@@ -231,7 +286,7 @@ class ORTModelForStableDiffusion(ORTModel, StableDiffusionPipelineMixin):
         provider_options: Optional[Dict[str, Any]] = None,
         use_io_binding: Optional[bool] = None,
         task: Optional[str] = None,
-    ) -> "ORTModelForStableDiffusion":
+    ) -> "ORTStableDiffusionPipeline":
         if task is None:
             task = cls._auto_model_to_task(cls.auto_model_class)
 
@@ -292,10 +347,10 @@ class ORTModelForStableDiffusion(ORTModel, StableDiffusionPipelineMixin):
         provider = get_provider_for_device(device)
         validate_provider_availability(provider)  # raise error if the provider is not available
         self.device = device
+        self.vae_decoder.session.set_providers([provider], provider_options=[provider_options])
         self.text_encoder.session.set_providers([provider], provider_options=[provider_options])
         self.unet.session.set_providers([provider], provider_options=[provider_options])
-        self.vae_decoder.session.set_providers([provider], provider_options=[provider_options])
-        self.providers = self.text_encoder.session.get_providers()
+        self.providers = self.vae_decoder.session.get_providers()
         return self
 
     def __call__(self, *args, **kwargs):
