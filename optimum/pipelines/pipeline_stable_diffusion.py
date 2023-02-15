@@ -14,12 +14,14 @@
 
 import inspect
 import logging
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Callable, List, Optional, Union
+
 import numpy as np
 import torch
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
-from PIL import Image
+
 from .pipeline_utils import DiffusionPipelineMixin
+
 
 logger = logging.getLogger(__name__)
 

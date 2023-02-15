@@ -12,11 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-import inspect
 import logging
-from typing import Any, Callable, Dict, List, Optional, Union
 
-import numpy as np
 from diffusers import ConfigMixin
 from PIL import Image
 from tqdm.auto import tqdm

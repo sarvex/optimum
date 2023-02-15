@@ -4,7 +4,7 @@ import os
 import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import numpy as np
 import torch
@@ -22,6 +22,7 @@ from ..exporters.onnx import (
 )
 from ..exporters.tasks import TasksManager
 from ..onnx.utils import _get_external_data_paths
+from ..pipelines.pipeline_stable_diffusion import StableDiffusionPipelineMixin
 from .base import ORTModelPart
 from .modeling_ort import ORTModel
 from .utils import (
@@ -32,7 +33,6 @@ from .utils import (
     validate_provider_availability,
 )
 
-from ..pipelines.pipeline_stable_diffusion import StableDiffusionPipelineMixin
 
 logger = logging.getLogger(__name__)
 
