@@ -24,11 +24,15 @@ from .pipeline_utils import DiffusionPipelineMixin
 logger = logging.getLogger(__name__)
 
 
-
 class StableDiffusionPipelineMixin(DiffusionPipelineMixin):
-
     # Copied from https://github.com/huggingface/diffusers/blob/v0.12.1/src/diffusers/pipelines/stable_diffusion/pipeline_onnx_stable_diffusion.py#L115
-    def _encode_prompt(self, prompt:Union[str, List[str]], num_images_per_prompt: int, do_classifier_free_guidance: bool, negative_prompt:Union[str, List[str]]):
+    def _encode_prompt(
+        self,
+        prompt: Union[str, List[str]],
+        num_images_per_prompt: int,
+        do_classifier_free_guidance: bool,
+        negative_prompt: Union[str, List[str]],
+    ):
         r"""
         Encodes the prompt into text encoder hidden states.
 
@@ -237,4 +241,3 @@ class StableDiffusionPipelineMixin(DiffusionPipelineMixin):
             return (image, has_nsfw_concept)
 
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
-    

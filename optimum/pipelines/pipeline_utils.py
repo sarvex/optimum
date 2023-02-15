@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 
 class DiffusionPipelineMixin(ConfigMixin):
-
     # Copied from https://github.com/huggingface/diffusers/blob/v0.12.1/src/diffusers/pipelines/pipeline_utils.py#L812
     @staticmethod
     def numpy_to_pil(images):

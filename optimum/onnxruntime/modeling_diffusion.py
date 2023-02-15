@@ -58,7 +58,6 @@ class ORTModelForStableDiffusion(ORTModel, StableDiffusionPipelineMixin):
         model_save_dir: Optional[Union[str, Path, TemporaryDirectory]] = None,
         **kwargs,
     ):
-
         self.shared_attributes_init(
             vae_decoder_session,
             use_io_binding=use_io_binding,
@@ -298,7 +297,7 @@ class ORTModelForStableDiffusion(ORTModel, StableDiffusionPipelineMixin):
         self.vae_decoder.session.set_providers([provider], provider_options=[provider_options])
         self.providers = self.text_encoder.session.get_providers()
         return self
-    
+
     def __call__(self, *args, **kwargs):
         return StableDiffusionPipelineMixin.__call__(self, *args, **kwargs)
 
