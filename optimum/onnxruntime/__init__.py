@@ -13,8 +13,10 @@
 #  limitations under the License.
 from typing import TYPE_CHECKING
 
-from transformers.utils import _LazyModule, OptionalDependencyNotAvailable
+from transformers.utils import OptionalDependencyNotAvailable, _LazyModule
+
 from ..utils import is_diffusers_available
+
 
 _import_structure = {
     "configuration": [
