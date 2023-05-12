@@ -104,9 +104,9 @@ class TextDecoderOnnxConfig(OnnxConfigWithPast):
                 decoder_path = Path(path, onnx_files_subpaths[0])
                 decoder_with_past_path = Path(path, onnx_files_subpaths[1])
             else:
-                decoder_path = Path(path, ONNX_DECODER_NAME + ".onnx")
-                decoder_with_past_path = Path(path, ONNX_DECODER_WITH_PAST_NAME + ".onnx")
-            decoder_merged_path = Path(path, ONNX_DECODER_MERGED_NAME + ".onnx")
+                decoder_path = Path(path, f"{ONNX_DECODER_NAME}.onnx")
+                decoder_with_past_path = Path(path, f"{ONNX_DECODER_WITH_PAST_NAME}.onnx")
+            decoder_merged_path = Path(path, f"{ONNX_DECODER_MERGED_NAME}.onnx")
             try:
                 merge_decoders(
                     decoder=decoder_path,
@@ -171,11 +171,10 @@ class TextSeq2SeqOnnxConfig(OnnxSeq2SeqConfigWithPast):
                 # TODO: validate the axis name for attention_mask
                 # common_inputs["attention_mask"][1] = "past_encoder_sequence_length + sequence_length"
                 common_inputs["decoder_input_ids"] = {0: "batch_size"}
+                self.add_past_key_values(common_inputs, direction="inputs")
+
             else:
                 common_inputs["decoder_input_ids"] = {0: "batch_size", 1: "decoder_sequence_length"}
-
-            if self.use_past_in_inputs:
-                self.add_past_key_values(common_inputs, direction="inputs")
 
         if self._behavior is ConfigBehavior.DECODER:
             common_inputs["encoder_outputs"] = {0: "batch_size", 1: "encoder_sequence_length"}
@@ -197,13 +196,11 @@ class TextSeq2SeqOnnxConfig(OnnxSeq2SeqConfigWithPast):
             encoder_sequence_length=dummy_text_input_generator.sequence_length,
             **kwargs,
         )
-        dummy_inputs_generators = [
+        return [
             dummy_text_input_generator,
             dummy_decoder_text_input_generator,
             dummy_seq2seq_past_key_values_generator,
         ]
-
-        return dummy_inputs_generators
 
 
 class VisionOnnxConfig(OnnxConfig):
@@ -251,11 +248,10 @@ class AudioToTextOnnxConfig(OnnxSeq2SeqConfigWithPast):
         if self._behavior is not ConfigBehavior.ENCODER:
             if self.use_past_in_inputs:
                 common_inputs["decoder_input_ids"] = {0: "batch_size"}
+                self.add_past_key_values(common_inputs, direction="inputs")
+
             else:
                 common_inputs["decoder_input_ids"] = {0: "batch_size", 1: "decoder_sequence_length"}
-
-            if self.use_past_in_inputs:
-                self.add_past_key_values(common_inputs, direction="inputs")
 
         if self._behavior is ConfigBehavior.DECODER:
             common_inputs["encoder_outputs"] = {0: "batch_size", 1: "encoder_sequence_length"}
@@ -362,14 +358,13 @@ class EncoderDecoderOnnxConfig(OnnxSeq2SeqConfigWithPast):
     def generate_dummy_inputs_for_validation(self, reference_model_inputs: Dict[str, Any]) -> Dict[str, Any]:
         if self._behavior is ConfigBehavior.ENCODER:
             return self._encoder_onnx_config.generate_dummy_inputs_for_validation(reference_model_inputs)
-        else:
-            if self._behavior is ConfigBehavior.DECODER:
-                reference_model_inputs["input_ids"] = reference_model_inputs.pop("decoder_input_ids")
+        if self._behavior is ConfigBehavior.DECODER:
+            reference_model_inputs["input_ids"] = reference_model_inputs.pop("decoder_input_ids")
 
-                # for encoder-decoder custom models, always pass encoder_hidden_states as input
-                reference_model_inputs["encoder_hidden_states"] = reference_model_inputs.pop("encoder_outputs")[0]
+            # for encoder-decoder custom models, always pass encoder_hidden_states as input
+            reference_model_inputs["encoder_hidden_states"] = reference_model_inputs.pop("encoder_outputs")[0]
 
-            return self._decoder_onnx_config.generate_dummy_inputs_for_validation(reference_model_inputs)
+        return self._decoder_onnx_config.generate_dummy_inputs_for_validation(reference_model_inputs)
 
     def post_process_exported_models(
         self,

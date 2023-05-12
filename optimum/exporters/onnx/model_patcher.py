@@ -141,7 +141,7 @@ class Seq2SeqModelPatcher(ModelPatcher):
                         ):
                             filterd_outputs[name] = value
                         elif self.real_config._behavior == "decoder" and self.real_config.use_past is True:
-                            filterd_outputs[name] = tuple([v[:2] for v in value])
+                            filterd_outputs[name] = tuple(v[:2] for v in value)
             return filterd_outputs
 
         self.patched_forward = patched_forward

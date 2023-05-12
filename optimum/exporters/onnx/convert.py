@@ -136,7 +136,7 @@ def validate_models_outputs(
         onnx_model_path = (
             output_dir.joinpath(onnx_files_subpaths[i])
             if onnx_files_subpaths is not None
-            else output_dir.joinpath(model_name + ".onnx")
+            else output_dir.joinpath(f"{model_name}.onnx")
         )
         onnx_paths.append(onnx_model_path)
         try:
@@ -153,7 +153,7 @@ def validate_models_outputs(
         except Exception as e:
             exceptions.append(e)
 
-    if len(exceptions) != 0:
+    if exceptions:
         for i, exception in enumerate(exceptions[:-1]):
             logger.error(f"Validation {i} for the model {onnx_paths[i].as_posix()} raised: {exception}")
         raise exceptions[-1]
@@ -272,7 +272,7 @@ def validate_model_outputs(
             name = "present"
         if isinstance(value, (list, tuple)):
             value = config.flatten_output_collection_property(name, value)
-            ref_outputs_dict.update(value)
+            ref_outputs_dict |= value
         else:
             ref_outputs_dict[name] = value
 
@@ -285,7 +285,10 @@ def validate_model_outputs(
     for name, value in reference_ort_inputs.items():
         if isinstance(value, (list, tuple)):
             value = config.flatten_output_collection_property(name, value)
-            onnx_inputs.update({tensor_name: pt_tensor.cpu().numpy() for tensor_name, pt_tensor in value.items()})
+            onnx_inputs |= {
+                tensor_name: pt_tensor.cpu().numpy()
+                for tensor_name, pt_tensor in value.items()
+            }
         else:
             onnx_inputs[name] = value.cpu().numpy()
 
@@ -305,9 +308,8 @@ def validate_model_outputs(
             f"ONNX model output names: {onnx_outputs_set}"
             f"Difference: {onnx_outputs_set.difference(ref_outputs_set)}"
         )
-    else:
-        onnx_output_names = ", ".join(onnx_outputs_set)
-        logger.info(f"\t-[✓] ONNX model output names match reference model ({onnx_output_names})")
+    onnx_output_names = ", ".join(onnx_outputs_set)
+    logger.info(f"\t-[✓] ONNX model output names match reference model ({onnx_output_names})")
 
     if "diffusers" in str(reference_model.__class__) and not is_diffusers_available():
         raise ImportError("The pip package `diffusers` is required to validate stable diffusion ONNX models.")
@@ -323,7 +325,7 @@ def validate_model_outputs(
         logger.info(f'\t- Validating ONNX Model output "{name}":')
 
         # Shape
-        if not ort_value.shape == ref_value.shape:
+        if ort_value.shape != ref_value.shape:
             logger.error(f"\t\t-[x] shape {ort_value.shape} doesn't match {ref_value.shape}")
             shape_failures.append((name, ref_value.shape, ort_value.shape))
         else:
@@ -427,53 +429,50 @@ def export_pytorch(
         input_names = list(inputs.keys())
         output_names = list(config.outputs.keys())
 
-        # PyTorch deprecated the `enable_onnx_checker` and `use_external_data_format` arguments in v1.11,
-        # so we check the torch version for backwards compatibility
         if is_torch_less_than_1_11:
             raise RuntimeError("The ONNX export using the PyTorch framework is only supported for v1.11+")
-        else:
-            with config.patch_model_for_export(model):
-                # Export can work with named args but the dict containing named args has to be the last element of the args
-                # tuple.
-                onnx_export(
-                    model,
-                    (dummy_inputs,),
-                    f=output.as_posix(),
-                    input_names=input_names,
-                    output_names=output_names,
-                    dynamic_axes=dict(chain(inputs.items(), config.outputs.items())),
-                    do_constant_folding=True,
-                    opset_version=opset,
-                )
+        with config.patch_model_for_export(model):
+            # Export can work with named args but the dict containing named args has to be the last element of the args
+            # tuple.
+            onnx_export(
+                model,
+                (dummy_inputs,),
+                f=output.as_posix(),
+                input_names=input_names,
+                output_names=output_names,
+                dynamic_axes=dict(chain(inputs.items(), config.outputs.items())),
+                do_constant_folding=True,
+                opset_version=opset,
+            )
 
-            # check if external data was exported
-            # TODO: this is quite inefficient as we load in memory if models are <2GB without external data
-            onnx_model = onnx.load(str(output), load_external_data=False)
-            model_uses_external_data = check_model_uses_external_data(onnx_model)
+        # check if external data was exported
+        # TODO: this is quite inefficient as we load in memory if models are <2GB without external data
+        onnx_model = onnx.load(str(output), load_external_data=False)
+        model_uses_external_data = check_model_uses_external_data(onnx_model)
 
-            if model_uses_external_data or FORCE_ONNX_EXTERNAL_DATA:
-                tensors_paths = _get_onnx_external_data_tensors(onnx_model)
-                logger.info("Saving external data to one file...")
+        if model_uses_external_data or FORCE_ONNX_EXTERNAL_DATA:
+            tensors_paths = _get_onnx_external_data_tensors(onnx_model)
+            logger.info("Saving external data to one file...")
 
-                # try free model memory
-                del model
-                del onnx_model
+            # try free model memory
+            del model
+            del onnx_model
 
-                onnx_model = onnx.load(
-                    str(output), load_external_data=True
-                )  # this will probably be too memory heavy for large models
-                onnx.save(
-                    onnx_model,
-                    str(output),
-                    save_as_external_data=True,
-                    all_tensors_to_one_file=True,
-                    location=output.name + "_data",
-                    size_threshold=1024 if not FORCE_ONNX_EXTERNAL_DATA else 0,
-                )
+            onnx_model = onnx.load(
+                str(output), load_external_data=True
+            )  # this will probably be too memory heavy for large models
+            onnx.save(
+                onnx_model,
+                str(output),
+                save_as_external_data=True,
+                all_tensors_to_one_file=True,
+                location=f"{output.name}_data",
+                size_threshold=1024 if not FORCE_ONNX_EXTERNAL_DATA else 0,
+            )
 
-                # delete previous external data
-                for tensor in tensors_paths:
-                    os.remove(output.parent / tensor)
+            # delete previous external data
+            for tensor in tensors_paths:
+                os.remove(output.parent / tensor)
 
     return input_names, output_names
 
@@ -600,7 +599,11 @@ def export_models(
 
     for i, model_name in enumerate(models_and_onnx_configs.keys()):
         submodel, sub_onnx_config = models_and_onnx_configs[model_name]
-        output_name = output_names[i] if output_names is not None else Path(model_name + ".onnx")
+        output_name = (
+            output_names[i]
+            if output_names is not None
+            else Path(f"{model_name}.onnx")
+        )
 
         output_path = output_dir / output_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -618,8 +621,7 @@ def export_models(
             )
         )
 
-    outputs = list(map(list, zip(*outputs)))
-    return outputs
+    return list(map(list, zip(*outputs)))
 
 
 def export(

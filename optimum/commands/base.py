@@ -109,10 +109,7 @@ class BaseOptimumCLICommand(ABC):
         """
         subparsers = getattr(self, "_subparsers", None)
         if subparsers is None:
-            if self.SUBCOMMANDS:
-                self._subparsers = self.parser.add_subparsers()
-            else:
-                self._subparsers = None
+            self._subparsers = self.parser.add_subparsers() if self.SUBCOMMANDS else None
         return self._subparsers
 
     @subparsers.setter

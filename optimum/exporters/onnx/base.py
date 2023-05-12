@@ -231,7 +231,7 @@ class OnnxConfig(ExportConfig, ABC):
             model_path (`Path`):
                 The path of the freshly exported ONNX model.
         """
-        if not (is_onnx_available() and is_onnxruntime_available()):
+        if not is_onnx_available() or not is_onnxruntime_available():
             raise RuntimeError(
                 "The onnx and onnxruntime packages are necessary to fix the dynamic shapes of the exported model. "
                 "You can install them by doing: pip install onnx onnxruntime"
@@ -257,10 +257,11 @@ class OnnxConfig(ExportConfig, ABC):
 
         to_fix = []
         for output_idx, node in enumerate(session.get_outputs()):
-            for idx, axis in enumerate(node.shape):
-                if isinstance(axis, str) and axis not in allowed_dynamic_axes:
-                    to_fix.append((output_idx, idx))
-
+            to_fix.extend(
+                (output_idx, idx)
+                for idx, axis in enumerate(node.shape)
+                if isinstance(axis, str) and axis not in allowed_dynamic_axes
+            )
         # We branch here to avoid doing an unnecessary forward pass.
         if to_fix:
             if input_shapes is None:
@@ -271,7 +272,7 @@ class OnnxConfig(ExportConfig, ABC):
             for name, value in dummy_inputs.items():
                 if isinstance(value, (list, tuple)):
                     value = self.flatten_output_collection_property(name, value)
-                    onnx_inputs.update(dict(value.items()))
+                    onnx_inputs |= dict(value.items())
                 else:
                     onnx_inputs[name] = value
             for name, value in onnx_inputs.items():
@@ -301,10 +302,7 @@ class OnnxConfig(ExportConfig, ABC):
         Returns:
             `Optional[Dict[str, Any]]`: A dictionary specifying the configuration items to override.
         """
-        if hasattr(self._config, "use_cache"):
-            return {"use_cache": False}
-
-        return None
+        return {"use_cache": False} if hasattr(self._config, "use_cache") else None
 
     @property
     def is_torch_support_available(self) -> bool:
@@ -363,10 +361,11 @@ class OnnxConfig(ExportConfig, ABC):
 
         for param in sig.parameters:
             param_regex = re.compile(rf"{param}(\.\d*)?")
-            to_insert = []
-            for name, dynamic_axes in inputs.items():
-                if re.match(param_regex, name):
-                    to_insert.append((name, dynamic_axes))
+            to_insert = [
+                (name, dynamic_axes)
+                for name, dynamic_axes in inputs.items()
+                if re.match(param_regex, name)
+            ]
             # TODO: figure out a smart way of re-ordering potential nested structures.
             # to_insert = sorted(to_insert, key=lambda t: t[0])
             for name, dynamic_axes in to_insert:
@@ -608,7 +607,7 @@ class OnnxConfigWithPast(OnnxConfig, ABC):
 
     def flatten_output_collection_property(self, name: str, field: Iterable[Any]) -> Dict[str, Any]:
         flattened_output = {}
-        if name in ["present", "past_key_values"]:
+        if name in {"present", "past_key_values"}:
             for idx, t in enumerate(field):
                 self.flatten_past_key_values(flattened_output, name, idx, t)
         else:
@@ -617,18 +616,19 @@ class OnnxConfigWithPast(OnnxConfig, ABC):
         return flattened_output
 
     def generate_dummy_inputs_for_validation(self, reference_model_inputs: Dict[str, Any]) -> Dict[str, Any]:
-        if self.is_merged is True and self.use_cache_branch is True:
-            reference_model_inputs["use_cache_branch"] = DummyInputGenerator.constant_tensor(shape=[1], value=True)
-        elif self.is_merged is True and self.use_cache_branch is False:
-            reference_model_inputs["use_cache_branch"] = DummyInputGenerator.constant_tensor(shape=[1], value=False)
+        if self.is_merged is True:
+            if self.use_cache_branch is True:
+                reference_model_inputs["use_cache_branch"] = DummyInputGenerator.constant_tensor(shape=[1], value=True)
+            elif self.use_cache_branch is False:
+                reference_model_inputs["use_cache_branch"] = DummyInputGenerator.constant_tensor(shape=[1], value=False)
 
-            # We don't support optional inputs for now, so even though the non-cache branch is used,
-            # dummy past key values are necessary
-            batch_size = reference_model_inputs["input_ids"].shape[0]
-            pkv_generator = self.DUMMY_PKV_GENERATOR_CLASS(
-                task=self.task, normalized_config=self._normalized_config, sequence_length=1, batch_size=batch_size
-            )
-            reference_model_inputs["past_key_values"] = pkv_generator.generate("past_key_values", framework="pt")
+                # We don't support optional inputs for now, so even though the non-cache branch is used,
+                # dummy past key values are necessary
+                batch_size = reference_model_inputs["input_ids"].shape[0]
+                pkv_generator = self.DUMMY_PKV_GENERATOR_CLASS(
+                    task=self.task, normalized_config=self._normalized_config, sequence_length=1, batch_size=batch_size
+                )
+                reference_model_inputs["past_key_values"] = pkv_generator.generate("past_key_values", framework="pt")
 
         return reference_model_inputs
 
@@ -782,9 +782,9 @@ class OnnxSeq2SeqConfigWithPast(OnnxConfigWithPast):
                 decoder_path = Path(path, onnx_files_subpaths[1])
                 decoder_with_past_path = Path(path, onnx_files_subpaths[2])
             else:
-                decoder_path = Path(path, ONNX_DECODER_NAME + ".onnx")
-                decoder_with_past_path = Path(path, ONNX_DECODER_WITH_PAST_NAME + ".onnx")
-            decoder_merged_path = Path(path, ONNX_DECODER_MERGED_NAME + ".onnx")
+                decoder_path = Path(path, f"{ONNX_DECODER_NAME}.onnx")
+                decoder_with_past_path = Path(path, f"{ONNX_DECODER_WITH_PAST_NAME}.onnx")
+            decoder_merged_path = Path(path, f"{ONNX_DECODER_MERGED_NAME}.onnx")
             try:
                 # The decoder with past does not output the cross attention past key values as they are constant,
                 # hence the need for strict=False
@@ -801,7 +801,7 @@ class OnnxSeq2SeqConfigWithPast(OnnxConfigWithPast):
             if onnx_files_subpaths is not None:
                 encoder_path = onnx_files_subpaths[0]
             else:
-                encoder_path = ONNX_ENCODER_NAME + ".onnx"
+                encoder_path = f"{ONNX_ENCODER_NAME}.onnx"
 
             onnx_files_subpaths = [encoder_path, decoder_merged_path.name, decoder_merged_path.name]
 
@@ -937,7 +937,7 @@ class OnnxConfigWithLoss(OnnxConfig, ABC):
 
     def flatten_output_collection_property(self, name: str, field: Iterable[Any]) -> Dict[str, Any]:
         flattened_output = {}
-        if name in ["present", "past_key_values"]:
+        if name in {"present", "past_key_values"}:
             if "causal-lm" in self.task:
                 for idx, t in enumerate(field):
                     self.flatten_decoder_past_key_values(flattened_output, name, idx, t)

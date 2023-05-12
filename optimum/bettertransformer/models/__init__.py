@@ -142,10 +142,17 @@ class BetterTransformerManager:
             model_type (`str`):
                 The model type to check.
         """
-        if model_type in ["blenderbot", "codegen", "gpt2", "gptj", "gpt_neo", "gpt_neox", "opt", "pegasus", "t5"]:
-            return False
-        else:
-            return True
+        return model_type not in [
+            "blenderbot",
+            "codegen",
+            "gpt2",
+            "gptj",
+            "gpt_neo",
+            "gpt_neox",
+            "opt",
+            "pegasus",
+            "t5",
+        ]
 
     @staticmethod
     def requires_strict_validation(model_type: str) -> bool:
@@ -156,10 +163,17 @@ class BetterTransformerManager:
             model_type (`str`):
                 The model type to check.
         """
-        if model_type in ["blenderbot", "codegen", "gpt2", "gptj", "gpt_neo", "gpt_neox", "opt", "pegasus", "t5"]:
-            return False
-        else:
-            return True
+        return model_type not in [
+            "blenderbot",
+            "codegen",
+            "gpt2",
+            "gptj",
+            "gpt_neo",
+            "gpt_neox",
+            "opt",
+            "pegasus",
+            "t5",
+        ]
 
     @staticmethod
     def requires_torch_20(model_type: str) -> bool:
@@ -170,7 +184,7 @@ class BetterTransformerManager:
             model_type (`str`):
                 The model type to check.
         """
-        if model_type in [
+        return model_type in {
             "blenderbot",
             "bart",
             "codegen",
@@ -184,10 +198,7 @@ class BetterTransformerManager:
             "opt",
             "pegasus",
             "t5",
-        ]:
-            return True
-        else:
-            return False
+        }
 
 
 class warn_uncompatible_save(object):

@@ -139,11 +139,7 @@ class GPTNeoAttentionLayerBetterTransformer(BetterTransformerBaseLayer, GPTNeoSe
     def __init__(self, layer: "nn.Module", config: "PretrainedConfig"):
         super().__init__(config)
 
-        if layer.bias[0][0][-1][0] == 1:
-            self.attention_type = "global"
-        else:
-            self.attention_type = "local"
-
+        self.attention_type = "global" if layer.bias[0][0][-1][0] == 1 else "local"
         with torch.device("meta"):
             super(BetterTransformerBaseLayer, self).__init__(config, self.attention_type)
 

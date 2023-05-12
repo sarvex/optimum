@@ -15,7 +15,7 @@ tests = [
 ]
 
 for test_name in tests:
-    new_name = "dev_" + test_name
+    new_name = f"dev_{test_name}"
 
     with open(Path("workflows", test_name), "r") as file:
         workflox_yml = yaml.load(file, yaml.BaseLoader)

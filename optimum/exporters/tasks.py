@@ -62,13 +62,11 @@ def is_backend_available(backend):
 
 
 def make_backend_config_constructor_for_task(config_cls: Type, task: str) -> ExportConfigConstructor:
-    if "-with-past" in task:
-        if not hasattr(config_cls, "with_past"):
-            raise ValueError(f"{config_cls} does not support tasks with past.")
-        constructor = partial(config_cls.with_past, task=task.replace("-with-past", ""))
-    else:
-        constructor = partial(config_cls, task=task)
-    return constructor
+    if "-with-past" not in task:
+        return partial(config_cls, task=task)
+    if not hasattr(config_cls, "with_past"):
+        raise ValueError(f"{config_cls} does not support tasks with past.")
+    return partial(config_cls.with_past, task=task.replace("-with-past", ""))
 
 
 def supported_tasks_mapping(
@@ -1102,36 +1100,31 @@ class TasksManager:
             class_name_prefix = "TF"
 
         inferred_task_name = None
-        is_local = os.path.isdir(os.path.join(model_name_or_path, subfolder))
-
-        if is_local:
+        if is_local := os.path.isdir(os.path.join(model_name_or_path, subfolder)):
             # TODO: maybe implement that.
             raise RuntimeError("Cannot infer the task from a local directory yet, please specify the task manually.")
+        if subfolder != "":
+            raise RuntimeError(
+                "Cannot infer the task from a model repo with a subfolder yet, please specify the task manually."
+            )
+        model_info = huggingface_hub.model_info(model_name_or_path, revision=revision)
+        if model_info.library_name == "diffusers":
+            # TODO : getattr(model_info, "model_index") defining auto_model_class_name currently set to None
+            if "stable-diffusion" in model_info.tags:
+                inferred_task_name = "stable-diffusion"
+        elif model_info.config["model_type"] == "vision-encoder-decoder":
+            inferred_task_name = "vision2seq-lm"
         else:
-            if subfolder != "":
-                raise RuntimeError(
-                    "Cannot infer the task from a model repo with a subfolder yet, please specify the task manually."
-                )
-            model_info = huggingface_hub.model_info(model_name_or_path, revision=revision)
-            if model_info.library_name == "diffusers":
-                # TODO : getattr(model_info, "model_index") defining auto_model_class_name currently set to None
-                if "stable-diffusion" in model_info.tags:
-                    inferred_task_name = "stable-diffusion"
-            else:
-                transformers_info = model_info.transformersInfo
-                if model_info.config["model_type"] == "vision-encoder-decoder":
-                    inferred_task_name = "vision2seq-lm"
-                # TODO: handle other possible special cases here.
-                else:
-                    if transformers_info is None or transformers_info.get("auto_model") is None:
-                        raise RuntimeError(f"Could not infer the task from the model repo {model_name_or_path}")
-                    auto_model_class_name = transformers_info["auto_model"]
-                    if not auto_model_class_name.startswith("TF"):
-                        auto_model_class_name = f"{class_name_prefix}{auto_model_class_name}"
-                    for task_name, class_name_for_task in tasks_to_automodels.items():
-                        if class_name_for_task == auto_model_class_name:
-                            inferred_task_name = task_name
-                            break
+            transformers_info = model_info.transformersInfo
+            if transformers_info is None or transformers_info.get("auto_model") is None:
+                raise RuntimeError(f"Could not infer the task from the model repo {model_name_or_path}")
+            auto_model_class_name = transformers_info["auto_model"]
+            if not auto_model_class_name.startswith("TF"):
+                auto_model_class_name = f"{class_name_prefix}{auto_model_class_name}"
+            for task_name, class_name_for_task in tasks_to_automodels.items():
+                if class_name_for_task == auto_model_class_name:
+                    inferred_task_name = task_name
+                    break
         if inferred_task_name is None:
             raise KeyError(f"Could not find the proper task name for {auto_model_class_name}.")
         return inferred_task_name
@@ -1183,11 +1176,11 @@ class TasksManager:
             `List`: all the possible tasks.
         """
         tasks = []
-        if is_torch_available():
-            tasks = list(TasksManager._TASKS_TO_AUTOMODELS.keys())
-        else:
-            tasks = list(TasksManager._TASKS_TO_TF_AUTOMODELS)
-        return tasks
+        return (
+            list(TasksManager._TASKS_TO_AUTOMODELS.keys())
+            if is_torch_available()
+            else list(TasksManager._TASKS_TO_TF_AUTOMODELS)
+        )
 
     @staticmethod
     def get_model_from_task(
@@ -1241,11 +1234,10 @@ class TasksManager:
             if framework == "pt":
                 logger.info("Loading TensorFlow model in PyTorch before exporting.")
                 kwargs["from_tf"] = True
-                model = model_class.from_pretrained(model_name_or_path, **kwargs)
             else:
                 logger.info("Loading PyTorch model in TensorFlow before exporting.")
                 kwargs["from_pt"] = True
-                model = model_class.from_pretrained(model_name_or_path, **kwargs)
+            model = model_class.from_pretrained(model_name_or_path, **kwargs)
         return model
 
     @staticmethod

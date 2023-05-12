@@ -201,7 +201,7 @@ def opt_forward(
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     raise_on_head_mask(layer_head_mask)
 
-    if output_attentions is True:
+    if output_attentions:
         raise ValueError("output_attentions=True can not be supported with BetterTransformer.")
 
     # TODO: raise on batch_size = 1 + padding
@@ -422,7 +422,7 @@ def bart_forward(
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     """Input shape: Batch x Time x Channel"""
     raise_on_head_mask(layer_head_mask)
-    if output_attentions is True:
+    if output_attentions:
         raise ValueError("output_attentions=True can not be supported with BetterTransformer.")
 
     # if key_value_states are provided this layer is used as a cross-attention layer

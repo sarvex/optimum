@@ -25,12 +25,12 @@ def _get_onnx_external_data_tensors(model: onnx.ModelProto) -> List[str]:
     Note: make sure you load the model with load_external_data=False.
     """
     model_tensors = _get_initializer_tensors(model)
-    model_tensors_ext = [
+    return [
         ExternalDataInfo(tensor).location
         for tensor in model_tensors
-        if tensor.HasField("data_location") and tensor.data_location == onnx.TensorProto.EXTERNAL
+        if tensor.HasField("data_location")
+        and tensor.data_location == onnx.TensorProto.EXTERNAL
     ]
-    return model_tensors_ext
 
 
 def _get_external_data_paths(src_paths: List[Path], dst_paths: List[Path]) -> Tuple[List[Path], List[str]]:
@@ -77,7 +77,4 @@ def has_onnx_input(model: Union[onnx.ModelProto, Path, str], input_name: str) ->
         model = Path(model).as_posix()
         model = onnx.load(model, load_external_data=False)
 
-    for input in model.graph.input:
-        if input.name == input_name:
-            return True
-    return False
+    return any(input.name == input_name for input in model.graph.input)

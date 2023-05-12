@@ -356,10 +356,7 @@ class BaseConfig(PretrainedConfig):
             kwargs.pop(key, None)
 
         logger.info(config)
-        if return_unused_kwargs:
-            return config, kwargs
-        else:
-            return config
+        return (config, kwargs) if return_unused_kwargs else config
 
     # Adapted from transformers.configuration_utils.PretrainedConfig.to_dict
     def to_dict(self) -> Dict[str, Any]:

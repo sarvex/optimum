@@ -137,34 +137,34 @@ class ORTDecoder(ORTModelPart):
         self.key_value_output_names = [key for key in self.output_names if (".key" in key) or (".value" in key)]
 
         # To handle the old case when past_key_values were following the format: past_key_values_{idx}
-        if len(self.key_value_input_names) == 0:
+        if not self.key_value_input_names:
             self.key_value_input_names = [key for key in self.input_names if "key_values" in key]
-        if len(self.key_value_output_names) == 0:
+        if not self.key_value_output_names:
             self.key_value_output_names = [key for key in self.output_names if "key_values" in key]
 
-        if self.parent_model.use_cache is True and len(self.key_value_output_names) == 0:
+        if self.parent_model.use_cache is True and not self.key_value_output_names:
             raise RuntimeError("Could not find the past key values in the provided model.")
 
-        if len(self.key_value_input_names) > 0:
-            self.use_past = True
-        else:
-            self.use_past = False
-
-        if len(self.key_value_output_names) != 0:
+        self.use_past = len(self.key_value_input_names) > 0
+        if self.key_value_output_names:
             # Attributes useful when computing the past key/values output shapes.
             self.expected_key_symbolic_shape = None
             self.expected_value_symbolic_shape = None
             for output in self.session.get_outputs():
-                if ".key" in output.name:
+                if (
+                    ".key" not in output.name
+                    and ".value" not in output.name
+                    and "key_values" in output.name
+                    and self.expected_key_symbolic_shape is None
+                    or ".key" in output.name
+                ):
                     self.expected_key_symbolic_shape = output.shape
-                elif ".value" in output.name:
+                elif (
+                    ".value" not in output.name
+                    and "key_values" in output.name
+                    or ".value" in output.name
+                ):
                     self.expected_value_symbolic_shape = output.shape
-                # To handle the old case when past_key_values were following the format: past_key_values_{idx}
-                elif "key_values" in output.name:
-                    if self.expected_key_symbolic_shape is None:
-                        self.expected_key_symbolic_shape = output.shape
-                    else:
-                        self.expected_value_symbolic_shape = output.shape
                 if self.expected_key_symbolic_shape is not None and self.expected_value_symbolic_shape is not None:
                     break
 
@@ -188,7 +188,7 @@ class ORTDecoder(ORTModelPart):
         past_key_values: Union[None, Tuple[torch.FloatTensor], Tuple[np.ndarray]] = None,
         use_torch: bool = False,
     ):
-        constructor = torch if use_torch is True else np
+        constructor = torch if use_torch else np
         if self.parent_model.use_merged:
             # Uses without/with branch of a merged decoder depending on whether real past key values are passed
             use_cache_branch = constructor.full((1,), past_key_values is not None)
@@ -213,7 +213,7 @@ class ORTDecoder(ORTModelPart):
                 key = constructor.zeros(shape_key, dtype=constructor.float32)
                 value = constructor.zeros(shape_value, dtype=constructor.float32)
 
-                if use_torch is True:
+                if use_torch:
                     key = key.to(self.device)
                     value = value.to(self.device)
 
@@ -224,7 +224,7 @@ class ORTDecoder(ORTModelPart):
                 shape = (batch_size, num_attention_heads, 1, embed_size_per_head)
                 key_or_value = constructor.zeros(shape, dtype=constructor.float32)
 
-                if use_torch is True:
+                if use_torch:
                     key_or_value = key_or_value.to(self.device)
 
                 past_key_values = tuple(key_or_value for _ in range(len(self.key_value_input_names)))
@@ -304,6 +304,8 @@ class ORTDecoder(ORTModelPart):
             input_ids, past_key_values, use_torch=use_torch
         )
 
+        # Tuple of tuple of length `n_layers`, with each tuple of length equal to 2 (self-attention key and value per decoder layer)
+        num_pkv = 2
         if self.device.type == "cuda" and self.parent_model.use_io_binding:
             known_output_shapes = self.compute_past_key_values_output_shapes(
                 input_ids,
@@ -341,10 +343,6 @@ class ORTDecoder(ORTModelPart):
             past_key_values = ()
             for name in self.key_value_output_names:
                 past_key_values += (output_buffers[name].view(output_shapes[name]),)
-
-            # Tuple of tuple of length `n_layers`, with each tuple of length equal to 2 (self-attention key and value per decoder layer)
-            num_pkv = 2
-            past_key_values = tuple(past_key_values[i : i + num_pkv] for i in range(0, len(past_key_values), num_pkv))
 
             logits = output_buffers["logits"].view(output_shapes["logits"])
 
@@ -394,15 +392,13 @@ class ORTDecoder(ORTModelPart):
                 for key in self.key_value_output_names
             )
 
-            # Tuple of tuple of length `n_layers`, with each tuple of length equal to the number of self-attention and
-            # per decoder layer
-            num_pkv = 2
-            past_key_values = tuple(past_key_values[i : i + num_pkv] for i in range(0, len(past_key_values), num_pkv))
             logits = torch.from_numpy(outputs[self.output_names["logits"]]).to(self.device)
 
             loss = None
             if "loss" in self.output_names:
                 loss = torch.from_numpy(outputs[self.output_names["loss"]]).to(self.device)
+
+        past_key_values = tuple(past_key_values[i : i + num_pkv] for i in range(0, len(past_key_values), num_pkv))
 
         return CausalLMOutputWithCrossAttentions(loss=loss, logits=logits, past_key_values=past_key_values)
 
@@ -474,7 +470,7 @@ class ORTDecoderForSeq2Seq(ORTDecoder):
             for output_name in self.output_names
             if (not output_name.startswith("present") and output_name not in {"loss", "logits"})
         }
-        if use_merged_cache is True:
+        if use_merged_cache:
             # When using a merged decoder and the use cache branch, we output 0-dim tensors that IO Binding do not support.
             # Therefore, we do not bind them.
             result = result.union(self.past_key_values_cross_attention_output_names)
@@ -507,6 +503,7 @@ class ORTDecoderForSeq2Seq(ORTDecoder):
             input_ids, past_key_values, use_torch=use_torch
         )
 
+        loss = None
         if self.parent_model.device.type == "cuda" and self.parent_model.use_io_binding:
             known_output_shapes = self.compute_past_key_values_output_shapes(
                 input_ids,
@@ -563,7 +560,6 @@ class ORTDecoderForSeq2Seq(ORTDecoder):
 
             logits = output_buffers["logits"].view(output_shapes["logits"])
 
-            loss = None
             if "loss" in self.output_names:
                 loss = output_buffers["loss"].view(output_shapes["loss"])
 
@@ -572,33 +568,31 @@ class ORTDecoderForSeq2Seq(ORTDecoder):
                 out_past_key_values = tuple(
                     out_past_key_values[i : i + self.num_pkv] for i in range(0, len(out_past_key_values), self.num_pkv)
                 )
+            elif self.use_legacy_outputs is True:
+                msg = (
+                    "For the decoder with past, using ONNX models outputting cross attention past key values"
+                    " is deprecated and the support will be removed in optimum 2.0. We recommend exporting again the model"
+                    " with optimum>=1.7.3."
+                )
+                warn_once(logger, msg=msg)
+                out_past_key_values = tuple(
+                    out_past_key_values[i : i + self.num_pkv]
+                    for i in range(0, len(out_past_key_values), self.num_pkv)
+                )
+            elif self.num_pkv == 2:
+                out_past_key_values = tuple(
+                    out_past_key_values[i : i + self.num_pkv]
+                    + past_key_values[2 * i + 2 : 2 * i + 2 + self.num_pkv]
+                    for i in range(0, len(out_past_key_values), self.num_pkv)
+                )
+            elif self.num_pkv == 4:
+                # despite num_pkv being 4, we did not bind the cross-attention output
+                out_past_key_values = tuple(
+                    out_past_key_values[i : i + 2] + past_key_values[2 * i + 2 : 2 * i + 4]
+                    for i in range(0, len(out_past_key_values), 2)
+                )
             else:
-                if self.use_legacy_outputs is True:
-                    msg = (
-                        "For the decoder with past, using ONNX models outputting cross attention past key values"
-                        " is deprecated and the support will be removed in optimum 2.0. We recommend exporting again the model"
-                        " with optimum>=1.7.3."
-                    )
-                    warn_once(logger, msg=msg)
-                    out_past_key_values = tuple(
-                        out_past_key_values[i : i + self.num_pkv]
-                        for i in range(0, len(out_past_key_values), self.num_pkv)
-                    )
-                # grab the cross attention key/values from the inputs
-                elif self.num_pkv == 2:
-                    out_past_key_values = tuple(
-                        out_past_key_values[i : i + self.num_pkv]
-                        + past_key_values[2 * i + 2 : 2 * i + 2 + self.num_pkv]
-                        for i in range(0, len(out_past_key_values), self.num_pkv)
-                    )
-                elif self.num_pkv == 4:
-                    # despite num_pkv being 4, we did not bind the cross-attention output
-                    out_past_key_values = tuple(
-                        out_past_key_values[i : i + 2] + past_key_values[2 * i + 2 : 2 * i + 4]
-                        for i in range(0, len(out_past_key_values), 2)
-                    )
-                else:
-                    raise ValueError("Unsupported num_pkv")
+                raise ValueError("Unsupported num_pkv")
         else:
             if use_torch:
                 onnx_inputs = {
@@ -664,7 +658,6 @@ class ORTDecoderForSeq2Seq(ORTDecoder):
             if use_torch:
                 logits = torch.from_numpy(logits).to(self.device)
 
-            loss = None
             if "loss" in self.output_names:
                 loss = outputs[self.output_names["loss"]]
                 if use_torch:
@@ -678,31 +671,29 @@ class ORTDecoderForSeq2Seq(ORTDecoder):
                 out_past_key_values = tuple(
                     out_past_key_values[i : i + self.num_pkv] for i in range(0, len(out_past_key_values), self.num_pkv)
                 )
+            elif self.use_legacy_outputs is True:
+                msg = (
+                    "For the decoder with past, using ONNX models outputting cross attention past key values"
+                    " is deprecated and the support will be removed in optimum 2.0. We recommend exporting again the model"
+                    " with optimum>=1.7.3."
+                )
+                warn_once(logger, msg=msg)
+                out_past_key_values = tuple(
+                    out_past_key_values[i : i + self.num_pkv]
+                    for i in range(0, len(out_past_key_values), self.num_pkv)
+                )
+            elif self.num_pkv == 2:
+                out_past_key_values = tuple(
+                    out_past_key_values[i : i + self.num_pkv]
+                    + past_key_values[2 * i + 2 : 2 * i + 2 + self.num_pkv]
+                    for i in range(0, len(out_past_key_values), self.num_pkv)
+                )
+            elif self.num_pkv == 4:
+                out_past_key_values = tuple(
+                    out_past_key_values[i : i + 2] + past_key_values[i + 2 : i + 4]
+                    for i in range(0, len(out_past_key_values), self.num_pkv)
+                )
             else:
-                if self.use_legacy_outputs is True:
-                    msg = (
-                        "For the decoder with past, using ONNX models outputting cross attention past key values"
-                        " is deprecated and the support will be removed in optimum 2.0. We recommend exporting again the model"
-                        " with optimum>=1.7.3."
-                    )
-                    warn_once(logger, msg=msg)
-                    out_past_key_values = tuple(
-                        out_past_key_values[i : i + self.num_pkv]
-                        for i in range(0, len(out_past_key_values), self.num_pkv)
-                    )
-                # grab the cross attention key/values from the inputs
-                elif self.num_pkv == 2:
-                    out_past_key_values = tuple(
-                        out_past_key_values[i : i + self.num_pkv]
-                        + past_key_values[2 * i + 2 : 2 * i + 2 + self.num_pkv]
-                        for i in range(0, len(out_past_key_values), self.num_pkv)
-                    )
-                elif self.num_pkv == 4:
-                    out_past_key_values = tuple(
-                        out_past_key_values[i : i + 2] + past_key_values[i + 2 : i + 4]
-                        for i in range(0, len(out_past_key_values), self.num_pkv)
-                    )
-                else:
-                    raise ValueError("Unsupported num_pkv")
+                raise ValueError("Unsupported num_pkv")
 
         return Seq2SeqLMOutput(loss=loss, logits=logits, past_key_values=out_past_key_values)

@@ -117,7 +117,7 @@ class BetterTransformerBaseLayer:
             raise ValueError(
                 f"Activation function {self.act_fn} not supported" " for `BetterTransformer` integration."
             )
-        self.use_gelu = (self.act_fn == "gelu") or (self.act_fn == "gelu_new")
+        self.use_gelu = self.act_fn in ["gelu", "gelu_new"]
 
         # Check num_head is even
         if self.num_heads % 2 == 1:
@@ -139,14 +139,13 @@ class BetterTransformerBaseLayer:
 
     def _revert(self, module: torch.nn.Module) -> torch.nn.Module:
         if self.module_mapping is not None:
-            if "" in self.module_mapping.values():
-                for bt_module_attr_name, value in self.module_mapping.items():
-                    if value == "":
-                        module = getattr(self, bt_module_attr_name)
-                        return module
-            else:
+            if "" not in self.module_mapping.values():
                 raise NotImplementedError("replacing a submodule in revert is not supported")
 
+            for bt_module_attr_name, value in self.module_mapping.items():
+                if value == "":
+                    module = getattr(self, bt_module_attr_name)
+                    return module
         for modified_layer_key_names, original_layer_key_names in self.original_layers_mapping.items():
             if isinstance(original_layer_key_names, list):
                 current_weight = getattr(self, modified_layer_key_names)

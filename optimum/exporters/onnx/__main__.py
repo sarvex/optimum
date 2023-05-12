@@ -187,18 +187,22 @@ def main_export(
         torch_dtype=torch_dtype,
     )
 
-    if task != "stable-diffusion" and task + "-with-past" in TasksManager.get_supported_tasks_for_model_type(
-        model.config.model_type.replace("_", "-"), "onnx"
+    if (
+        task != "stable-diffusion"
+        and f"{task}-with-past"
+        in TasksManager.get_supported_tasks_for_model_type(
+            model.config.model_type.replace("_", "-"), "onnx"
+        )
     ):
-        if original_task == "auto":  # Make -with-past the default if --task was not explicitely specified
-            task = task + "-with-past"
+        if original_task == "auto":
+            task = f"{task}-with-past"
         else:
             logger.info(
                 f"The task `{task}` was manually specified, and past key values will not be reused in the decoding."
                 f" if needed, please pass `--task {task}-with-past` to export using the past key values."
             )
 
-    if task.endswith("-with-past") and monolith is True:
+    if task.endswith("-with-past") and monolith:
         task_non_past = task.replace("-with-past", "")
         raise ValueError(
             f"The task {task} is not compatible with the --monolith argument. Please either use"
@@ -304,7 +308,7 @@ def main_export(
         from ...onnxruntime import AutoOptimizationConfig, ORTOptimizer
 
         if onnx_files_subpaths is None:
-            onnx_files_subpaths = [key + ".onnx" for key in models_and_onnx_configs.keys()]
+            onnx_files_subpaths = [f"{key}.onnx" for key in models_and_onnx_configs.keys()]
         optimizer = ORTOptimizer.from_pretrained(output, file_names=onnx_files_subpaths)
 
         optimization_config = AutoOptimizationConfig.with_optimization_level(optimization_level=optimize)
@@ -325,7 +329,7 @@ def main_export(
                 f"The post-processing of the ONNX export failed. The export can still be performed by passing the option --no-post-process. Detailed error: {e}"
             )
 
-    if do_validation is True:
+    if do_validation:
         try:
             validate_models_outputs(
                 models_and_onnx_configs=models_and_onnx_configs,
@@ -362,11 +366,10 @@ def main():
     # Retrieve CLI arguments
     args = parser.parse_args()
 
-    # get the shapes to be used to generate dummy inputs
-    input_shapes = {}
-    for input_name in DEFAULT_DUMMY_SHAPES.keys():
-        input_shapes[input_name] = getattr(args, input_name)
-
+    input_shapes = {
+        input_name: getattr(args, input_name)
+        for input_name in DEFAULT_DUMMY_SHAPES.keys()
+    }
     main_export(
         model_name_or_path=args.model,
         output=args.output,

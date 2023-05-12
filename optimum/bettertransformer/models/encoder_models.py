@@ -402,7 +402,7 @@ class BartEncoderLayerBetterTransformer(BetterTransformerBaseLayer, nn.Module):
 
         if not self.is_last_layer:
             hidden_states.original_shape = original_shape
-        elif hidden_states.is_nested and self.is_last_layer:
+        elif hidden_states.is_nested:
             hidden_states = hidden_states.to_padded_tensor(0.0, original_shape)
         return (hidden_states,)
 
@@ -540,7 +540,7 @@ class MBartEncoderLayerBetterTransformer(BetterTransformerBaseLayer, nn.Module):
 
         if not self.is_last_layer:
             hidden_states.original_shape = original_shape
-        elif hidden_states.is_nested and self.is_last_layer:
+        elif hidden_states.is_nested:
             hidden_states = hidden_states.to_padded_tensor(0.0, original_shape)
         return (hidden_states,)
 
@@ -639,7 +639,7 @@ class DistilBertLayerBetterTransformer(BetterTransformerBaseLayer, nn.Module):
             attn_mask = torch.reshape(attn_mask, (attn_mask.shape[0], attn_mask.shape[-1]))
             seqlen = attn_mask.shape[1]
             lengths = torch.sum(~attn_mask, 1)
-            if not all([l == seqlen for l in lengths]):
+            if any(l != seqlen for l in lengths):
                 x = torch._nested_tensor_from_mask(x, attn_mask)
             attn_mask = None
 

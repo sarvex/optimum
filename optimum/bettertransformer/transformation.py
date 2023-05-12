@@ -88,13 +88,19 @@ def replace_to_bettertransformer(model, config):
                 model._modules[name] = bettertransformer_module
                 break
 
-        if len(list(module.children())) > 0 and should_replace_module is False:
-            # we may explicitly exclude part of the model to use BetterTransformer
-            if config.model_type not in BetterTransformerManager.EXCLUDE_FROM_TRANSFORM or (
-                config.model_type in BetterTransformerManager.EXCLUDE_FROM_TRANSFORM
-                and name not in BetterTransformerManager.EXCLUDE_FROM_TRANSFORM[config.model_type]
-            ):
-                replace_to_bettertransformer(module, config)
+        if (
+            list(module.children())
+            and should_replace_module is False
+            and (
+                config.model_type
+                not in BetterTransformerManager.EXCLUDE_FROM_TRANSFORM
+                or name
+                not in BetterTransformerManager.EXCLUDE_FROM_TRANSFORM[
+                    config.model_type
+                ]
+            )
+        ):
+            replace_to_bettertransformer(module, config)
 
     return model
 
@@ -115,7 +121,7 @@ def set_last_layer(model: torch.nn.Module):
 
     modulelist_lengths = []
 
-    for key in dict_named_module.keys():
+    for key in dict_named_module:
         if (
             isinstance(dict_named_module[key], torch.nn.ModuleList)
             and "encoder" in key
@@ -143,7 +149,7 @@ def set_last_layer(model: torch.nn.Module):
                 setattr(module, "is_last_layer", True)
                 return
     else:
-        for key in dict_named_module.keys():
+        for key in dict_named_module:
             if isinstance(dict_named_module[key], torch.nn.ModuleList) and all(
                 "LayerBetterTransformer" in module_name for module_name in sort_fn(dict_named_module[key])
             ):
@@ -280,7 +286,7 @@ class BetterTransformer(object):
 
         return model_fast
 
-    def reverse(bt_model: "PreTrainedModel") -> "PreTrainedModel":
+    def reverse(self) -> "PreTrainedModel":
         """
         Converts back a model using BetterTransformer to its canonical transformers modeling implementation, in order to save
         and share it.
@@ -292,7 +298,7 @@ class BetterTransformer(object):
         Returns:
             PreTrainedModel: _description_
         """
-        if getattr(bt_model, "use_bettertransformer", False) is False:
+        if not getattr(self, "use_bettertransformer", False):
             raise ValueError(
                 "The method BetterTransformer.reverse() should be used on a model already transformed to the BetterTransformer"
                 " format, which appears to not be the case."
@@ -302,20 +308,20 @@ class BetterTransformer(object):
             raise ValueError(
                 f"BetterTransformer reverse transform requires torch>=2.0 but {torch.__version__} is installed. Please upgrade PyTorch."
             )
-        config = bt_model.config
+        config = self.config
 
         if config.model_type not in ["wav2vec2", "hubert"]:
             with torch.device("meta"):
-                reversed_model = bt_model.__class__(config)
+                reversed_model = self.__class__(config)
         else:
             # TODO: fix once this is fixed in pytorch
             # reference: https://github.com/pytorch/pytorch/issues/96409
             logger.warning(
                 "The reverse transform for the architectures wav2vec2 and hubert is memory-heavy due to a bug in PyTorch."
             )
-            reversed_model = bt_model.__class__(config)
+            reversed_model = self.__class__(config)
 
-        if bt_model.training is False:
+        if self.training is False:
             reversed_model = reversed_model.eval()
 
         reversed_modules_paths = []
@@ -329,25 +335,27 @@ class BetterTransformer(object):
                 continue
 
             target_classes = list(BetterTransformerManager.MODEL_MAPPING[config.model_type].keys())
-            has_been_replaced = False
-            for target_class in target_classes:
-                if module.__class__.__name__ == target_class:
-                    has_been_replaced = True
-                    break
-
+            has_been_replaced = any(
+                module.__class__.__name__ == target_class
+                for target_class in target_classes
+            )
             # replace parameters, buffers (or possibly full modules) that were modified by the bettertransformer transform
             if has_been_replaced:
-                recurse_setattr(reversed_model, path, recurse_getattr(bt_model, path)._revert(module))
-                reversed_modules_paths.append(path + ".")  # add a . to avoid issues with startswith
+                recurse_setattr(
+                    reversed_model,
+                    path,
+                    recurse_getattr(self, path)._revert(module),
+                )
+                reversed_modules_paths.append(f"{path}.")
 
         # replace back parameters and buffers that were untouched by the bettertransformer transform
         for path, param in reversed_model.state_dict().items():
             if param.device == torch.device("meta") or not path.startswith(tuple(reversed_modules_paths)):
-                recurse_setattr(reversed_model, path, recurse_getattr(bt_model, path))
+                recurse_setattr(reversed_model, path, recurse_getattr(self, path))
 
         # some buffers may be non-persistent, hence not in the state_dict (as token_type_ids for some models)
         for path, param in reversed_model.named_buffers():
             if param.device == torch.device("meta") or not path.startswith(tuple(reversed_modules_paths)):
-                recurse_setattr(reversed_model, path, recurse_getattr(bt_model, path))
+                recurse_setattr(reversed_model, path, recurse_getattr(self, path))
 
         return reversed_model

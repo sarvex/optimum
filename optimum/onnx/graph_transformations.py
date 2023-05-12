@@ -80,7 +80,7 @@ def replace_atenops_to_gather(model: ModelProto) -> ModelProto:
             op_num = node.name.split("_")[-1]
             new_node = onnx.helper.make_node(
                 "Gather",
-                name="Gather_" + op_num,
+                name=f"Gather_{op_num}",
                 inputs=[node.input[0], node.input[1]],
                 outputs=node.output,
             )
@@ -144,7 +144,7 @@ def merge_decoders(
     # This is because the merged model `input_ids` and `attention_mask` inputs may not always have the same length on the 2nd axis.
     # In the first pass, `input_ids` and `attention_mask` are indeed of the same length, but in later pass `input_ids` is of length 1
     # while `attention_mask` is of length `past_sequence_length + 1`
-    for _, inp in enumerate(all_inputs):
+    for inp in all_inputs:
         if inp.name == "attention_mask":
             if inp.type.tensor_type.shape.dim[1].dim_param != "sequence_length":
                 raise ValueError("Expected attention_mask second axis to be dynamic and named `sequence_length`.")
@@ -219,9 +219,7 @@ def merge_decoders(
         try:
             onnx.checker.check_model(merged_model)
         except Exception as e:
-            if "No Op registered for" in str(e):
-                pass
-            else:
+            if "No Op registered for" not in str(e):
                 raise e
         if save_path:
             save_path = Path(save_path).as_posix()
@@ -233,14 +231,12 @@ def merge_decoders(
             save_path,
             save_as_external_data=True,
             all_tensors_to_one_file=True,
-            location=os.path.basename(save_path) + "_data",
+            location=f"{os.path.basename(save_path)}_data",
         )
         try:
             onnx.checker.check_model(save_path)
         except Exception as e:
-            if "No Op registered for" in str(e):
-                pass
-            else:
+            if "No Op registered for" not in str(e):
                 raise e
     else:
         logger.info("Merged ONNX model exceeds 2GB, the model will not be checked without `save_path` given.")
@@ -270,16 +266,19 @@ def cast_slice_nodes_inputs_to_int32(model: ModelProto) -> ModelProto:
     for node in model.graph.node:
         if (
             node.op_type == "Constant"
-            and node.attribute[0].t.data_type == 7  # int64
+            and node.attribute[0].t.data_type == 7
             and f"{node.name}_output_0" in map_input_node
-            and map_input_node[node.name + "_output_0"]["op_type"] == "Slice"
+            and map_input_node[f"{node.name}_output_0"]["op_type"] == "Slice"
         ):
             logger.debug(f"Converting {node.name} to int32")
 
             # `Slice` node is homogeneous (requires parameters of same type), hence cast to int32 only if all of its inputs are constants
             # refer to onnx/defs/schema.h
             cast = all(
-                "Constant" in inp for inp in map_node_inputs[map_input_node[node.name + "_output_0"]["node_name"]][1:]
+                "Constant" in inp
+                for inp in map_node_inputs[
+                    map_input_node[f"{node.name}_output_0"]["node_name"]
+                ][1:]
             )
             cast_int64_tensorproto_to_int32(node.attribute[0].t, cast=cast)
 

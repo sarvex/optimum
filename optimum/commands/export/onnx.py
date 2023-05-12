@@ -39,10 +39,7 @@ def parse_args_onnx(parser):
     optional_group.add_argument(
         "--task",
         default="auto",
-        help=(
-            "The task to export the model for. If not specified, the task will be auto-inferred based on the model. Available tasks depend on the model, but are among:"
-            f" {str(list(TasksManager._TASKS_TO_AUTOMODELS.keys()))}. For decoder models, use `xxx-with-past` to export the model using past key values in the decoder."
-        ),
+        help=f"The task to export the model for. If not specified, the task will be auto-inferred based on the model. Available tasks depend on the model, but are among: {list(TasksManager._TASKS_TO_AUTOMODELS.keys())}. For decoder models, use `xxx-with-past` to export the model using past key values in the decoder.",
     )
     optional_group.add_argument(
         "--opset",
@@ -195,11 +192,10 @@ class ONNXExportCommand(BaseOptimumCLICommand):
     def run(self):
         from ...exporters.onnx.__main__ import main_export
 
-        # Get the shapes to be used to generate dummy inputs
-        input_shapes = {}
-        for input_name in DEFAULT_DUMMY_SHAPES.keys():
-            input_shapes[input_name] = getattr(self.args, input_name)
-
+        input_shapes = {
+            input_name: getattr(self.args, input_name)
+            for input_name in DEFAULT_DUMMY_SHAPES.keys()
+        }
         main_export(
             model_name_or_path=self.args.model,
             output=self.args.output,

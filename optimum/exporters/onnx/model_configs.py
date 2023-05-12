@@ -175,8 +175,7 @@ class GPT2OnnxConfig(TextDecoderOnnxConfig):
         pad_value_override = {}
         if not getattr(self._config, "pad_token_id", None):
             pad_value_override = {"pad_token_id": 0}
-        super_values_override = super().values_override
-        if super_values_override:
+        if super_values_override := super().values_override:
             return {**super_values_override, **pad_value_override}
         return pad_value_override
 
@@ -394,13 +393,11 @@ class BartOnnxConfig(TextSeq2SeqOnnxConfig):
         dummy_seq2seq_past_key_values_generator = self.DUMMY_INPUT_GENERATOR_CLASSES[2][task](
             self.task, self._normalized_config, **kwargs
         )
-        dummy_inputs_generators = [
+        return [
             dummy_text_input_generator,
             dummy_decoder_text_input_generator,
             dummy_seq2seq_past_key_values_generator,
         ]
-
-        return dummy_inputs_generators
 
     @property
     def inputs_for_default_and_seq2seq_lm(self):
@@ -821,10 +818,7 @@ class Data2VecAudioOnnxConfig(AudioOnnxConfig):
 
 class PerceiverDummyInputGenerator(DummyVisionInputGenerator):
     def generate(self, input_name: str, framework: str = "pt"):
-        input_ = super().generate(input_name, framework)
-        # if input_name == "pixel_values":
-        #     input_ = input_[None, :]
-        return input_
+        return super().generate(input_name, framework)
 
 
 class PerceiverOnnxConfig(TextAndVisionOnnxConfig):
@@ -839,13 +833,12 @@ class PerceiverOnnxConfig(TextAndVisionOnnxConfig):
 
     @property
     def inputs_name(self):
-        if self.is_generating_dummy_inputs:
-            if self.task in ["masked-lm", "sequence-classification"]:
-                return "input_ids"
-            else:
-                return "pixel_values"
-        else:
+        if not self.is_generating_dummy_inputs:
             return "inputs"
+        if self.task in ["masked-lm", "sequence-classification"]:
+            return "input_ids"
+        else:
+            return "pixel_values"
 
     @property
     def inputs(self) -> Dict[str, Dict[int, str]]:
@@ -908,8 +901,8 @@ class WavLMOnnxConfig(HubertOnnxConfig):
 
 class ASTDummyAudioInputGenerator(DummyAudioInputGenerator):
     def generate(self, input_name: str, framework: str = "pt"):
-        shape = [self.batch_size, self.normalized_config.max_length, self.normalized_config.num_mel_bins]
         if input_name == "input_values":
+            shape = [self.batch_size, self.normalized_config.max_length, self.normalized_config.num_mel_bins]
             return self.random_float_tensor(shape, min_value=-1, max_value=1, framework=framework)
         return super().generate(input_name, framework=framework)
 
@@ -968,8 +961,8 @@ class WhisperOnnxConfig(AudioToTextOnnxConfig):
 
 class Speech2TextDummyAudioInputGenerator(DummyAudioInputGenerator):
     def generate(self, input_name: str, framework: str = "pt"):
-        shape = [self.batch_size, self.sequence_length, self.normalized_config.input_features_per_channel]
         if input_name == "input_features":
+            shape = [self.batch_size, self.sequence_length, self.normalized_config.input_features_per_channel]
             return self.random_float_tensor(shape, min_value=-1, max_value=1, framework=framework)
         return super().generate(input_name, framework=framework)
 
@@ -999,11 +992,10 @@ class Speech2TextOnnxConfig(AudioToTextOnnxConfig):
         if self._behavior is not ConfigBehavior.ENCODER:
             if self.use_past_in_inputs:
                 common_inputs["decoder_input_ids"] = {0: "batch_size"}
+                self.add_past_key_values(common_inputs, direction="inputs")
+
             else:
                 common_inputs["decoder_input_ids"] = {0: "batch_size", 1: "decoder_sequence_length"}
-
-            if self.use_past_in_inputs:
-                self.add_past_key_values(common_inputs, direction="inputs")
 
         if self._behavior is ConfigBehavior.DECODER:
             common_inputs["encoder_outputs"] = {
@@ -1071,11 +1063,10 @@ class VisionEncoderDecoderOnnxConfig(EncoderDecoderOnnxConfig):
         if self._behavior is not ConfigBehavior.ENCODER:
             if self.use_past_in_inputs:
                 common_inputs["decoder_input_ids"] = {0: "batch_size"}
+                self.add_past_key_values(common_inputs, direction="inputs")
             else:
                 common_inputs["decoder_input_ids"] = {0: "batch_size", 1: "decoder_sequence_length"}
 
-            if self.use_past_in_inputs:
-                self.add_past_key_values(common_inputs, direction="inputs")
         if self._behavior is ConfigBehavior.DECODER:
             common_inputs["encoder_outputs"] = {0: "batch_size", 1: "encoder_sequence_length"}
 

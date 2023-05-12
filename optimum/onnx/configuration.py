@@ -68,13 +68,12 @@ class DecoderOnnxConfig(OnnxSeq2SeqConfigWithPast):
     ) -> Dict[str, Any]:
         import torch
 
-        common_inputs = {}
         dummy_input = super().generate_dummy_inputs(
             tokenizer, batch_size=batch_size, seq_length=seq_length, is_pair=is_pair, framework=framework
         )
         batch, encoder_seq_length = dummy_input["input_ids"].shape
         encoder_hidden_states_shape = (batch, encoder_seq_length, self._config.hidden_size)
-        common_inputs["input_ids"] = dummy_input.pop("decoder_input_ids")
+        common_inputs = {"input_ids": dummy_input.pop("decoder_input_ids")}
         common_inputs["encoder_hidden_states"] = torch.zeros(encoder_hidden_states_shape)
         common_inputs["encoder_attention_mask"] = dummy_input.pop("attention_mask")
 

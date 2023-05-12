@@ -71,11 +71,7 @@ def main():
     maybe_save_preprocessors(args.model, args.output.parent)
 
     preprocessor = maybe_load_preprocessors(args.output.parent)
-    if preprocessor:
-        preprocessor = preprocessor[0]
-    else:
-        preprocessor = None
-
+    preprocessor = preprocessor[0] if preprocessor else None
     quantization_config = None
     if args.quantize:
         quantization_config = TFLiteQuantizationConfig(

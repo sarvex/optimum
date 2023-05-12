@@ -114,10 +114,11 @@ def _remove_redundant_initializers(models: List[ModelProto], name_sharing_dict: 
     """
     to_pop = []
     for i in range(len(models)):
-        for idx, initializer in enumerate(models[i].graph.initializer):
-            if initializer.name != name_sharing_dict[(initializer.name, i)]:
-                to_pop.append(idx)
-
+        to_pop.extend(
+            idx
+            for idx, initializer in enumerate(models[i].graph.initializer)
+            if initializer.name != name_sharing_dict[(initializer.name, i)]
+        )
         for idx in sorted(to_pop, reverse=True):
             models[i].graph.initializer.pop(idx)
 
@@ -148,7 +149,7 @@ def _unify_onnx_outputs(model1: ModelProto, model2: ModelProto, strict: bool):
     model2_outputs = {output.name for output in model2.graph.output}
 
     if model1_outputs != model2_outputs:
-        if strict is True:
+        if strict:
             raise ValueError(
                 f"The two model protos outputs are expected to have the same number of outputs and output names when strict=True. Found"
                 f" the outputs {model1_outputs - model2_outputs} only in model1, and {model2_outputs - model1_outputs} only in model2."
@@ -159,7 +160,7 @@ def _unify_onnx_outputs(model1: ModelProto, model2: ModelProto, strict: bool):
                 " Constant outputs will be added to unify the two models outputs."
             )
 
-    if model2_outputs.issubset(model1_outputs) is False:
+    if not model2_outputs.issubset(model1_outputs):
         raise ValueError("The second ModelProto should not have more outputs than the first.")
 
     for idx in range(len(model1.graph.output)):
@@ -171,7 +172,7 @@ def _unify_onnx_outputs(model1: ModelProto, model2: ModelProto, strict: bool):
                 model_output_1.name == model_output_2.name
                 and model_output_1.type.tensor_type.elem_type == model_output_2.type.tensor_type.elem_type
             ):
-                if strict is False and model_output_1.name not in model2_outputs:
+                if not strict and model_output_1.name not in model2_outputs:
                     data_type = model_output_1.type.tensor_type.elem_type
                     dims_output_1 = _infer_output_shape(model_output_1)
                     if not isinstance(dims_output_1[0], str):
@@ -233,9 +234,11 @@ def _unify_onnx_outputs(model1: ModelProto, model2: ModelProto, strict: bool):
                 )
                 model2.graph.output.insert(idx, new_output)
 
-    if not all(
-        model_output_1 == model_output_2
-        for model_output_1, model_output_2 in zip(model1.graph.output, model2.graph.output)
+    if any(
+        model_output_1 != model_output_2
+        for model_output_1, model_output_2 in zip(
+            model1.graph.output, model2.graph.output
+        )
     ):
         raise RuntimeError("Failed to unify outputs of given ONNX model protos.")
 
@@ -295,7 +298,7 @@ def cast_int64_tensorproto_to_int32(initializer: onnx.TensorProto, cast: bool = 
     original_name = initializer.name
     array = np.copy(numpy_helper.to_array(initializer))
 
-    if not array.dtype == np.int64:
+    if array.dtype != np.int64:
         raise TypeError(
             "Expecting a `TensorProto` of type `int64` (represented as `7` in onnx.TensorProto) in the function int64_tensorproto_to_int32, but got {array.dtype}."
         )

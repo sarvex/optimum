@@ -110,9 +110,12 @@ class TFLiteQuantizationConfig:
     image_key: Optional[str] = None
 
     def __post_init__(self):
-        if self.approach is not None:
-            if isinstance(self.approach, str) and not isinstance(self.approach, QuantizationApproach):
-                self.approach = QuantizationApproach(self.approach)
+        if (
+            self.approach is not None
+            and isinstance(self.approach, str)
+            and not isinstance(self.approach, QuantizationApproach)
+        ):
+            self.approach = QuantizationApproach(self.approach)
 
 
 class TFLiteConfig(ExportConfig, ABC):
@@ -244,13 +247,11 @@ class TFLiteConfig(ExportConfig, ABC):
 
     def __setattr__(self, name: str, value: Any) -> None:
         mandatory_axes = getattr(self, "mandatory_axes", [])
-        if name in mandatory_axes:
-            if value is None:
-                if self._normalized_config.has_attribute(name):
-                    value = getattr(self._normalized_config, name)
-            self._axes[name] = value
-        else:
+        if name not in mandatory_axes:
             return super().__setattr__(name, value)
+        if value is None and self._normalized_config.has_attribute(name):
+            value = getattr(self._normalized_config, name)
+        self._axes[name] = value
 
     def _validate_mandatory_axes(self):
         for name, axis_dim in self._axes.items():
@@ -271,10 +272,7 @@ class TFLiteConfig(ExportConfig, ABC):
         Returns:
             `Optional[Dict[str, Any]]`: A dictionary specifying the configuration items to override.
         """
-        if hasattr(self._config, "use_cache"):
-            return {"use_cache": False}
-
-        return None
+        return {"use_cache": False} if hasattr(self._config, "use_cache") else None
 
     @property
     @abstractmethod

@@ -96,9 +96,8 @@ def validate_model_outputs(
             f"TFLite model output names: {tflite_output_set}"
             f"Difference: {tflite_output_set.difference(ref_outputs_set)}"
         )
-    else:
-        tflite_output_names = ", ".join(tflite_output_set)
-        logger.info(f"\t-[✓] TFLite model output names match reference model ({tflite_output_names})")
+    tflite_output_names = ", ".join(tflite_output_set)
+    logger.info(f"\t-[✓] TFLite model output names match reference model ({tflite_output_names})")
 
     # Check the shape and values match
     shape_failures = []
@@ -112,7 +111,7 @@ def validate_model_outputs(
         logger.info(f'\t- Validating TFLite Model output "{name}":')
 
         # Shape
-        if not output.shape == ref_output.shape:
+        if output.shape != ref_output.shape:
             logger.error(f"\t\t-[x] shape {output.shape} doesn't match {ref_output.shape}")
             shape_failures.append((name, ref_output.shape, output.shape))
         else:

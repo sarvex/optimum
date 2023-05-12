@@ -837,7 +837,7 @@ class AutoOptimizationConfig:
             )
 
         if optimization_level == "O4":
-            if for_gpu is False:
+            if not for_gpu:
                 logger.warning("Overridding for_gpu=False to for_gpu=True as half precision is available only on GPU.")
             for_gpu = True
 

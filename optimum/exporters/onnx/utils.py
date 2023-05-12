@@ -99,12 +99,9 @@ def get_encoder_decoder_models_for_export(
         `Dict[str, Tuple[Union[`PreTrainedModel`, `TFPreTrainedModel`], `OnnxConfig`]: A Dict containing the model and
         onnx configs for the encoder and decoder parts of the model.
     """
-    models_for_export = {}
-
     encoder_model = model.get_encoder()
     encoder_onnx_config = config.with_behavior("encoder")
-    models_for_export[ONNX_ENCODER_NAME] = (encoder_model, encoder_onnx_config)
-
+    models_for_export = {ONNX_ENCODER_NAME: (encoder_model, encoder_onnx_config)}
     decoder_onnx_config = config.with_behavior("decoder", use_past=False)
     models_for_export[ONNX_DECODER_NAME] = (model, decoder_onnx_config)
 
@@ -137,13 +134,10 @@ def get_decoder_models_for_export(
         `Dict[str, Tuple[Union[PreTrainedModel, TFPreTrainedModel], OnnxConfig]]: A Dict containing the model and
         onnx configs for the encoder and decoder parts of the model.
     """
-    models_for_export = {}
-
     onnx_config = config.__class__(
         model.config, task=config.task, use_past_in_inputs=False, use_present_in_outputs=True
     )
-    models_for_export[ONNX_DECODER_NAME] = (model, onnx_config)
-
+    models_for_export = {ONNX_DECODER_NAME: (model, onnx_config)}
     if config.use_past:
         onnx_config_with_past = config.__class__(model.config, task=config.task, use_past=True)
         models_for_export[ONNX_DECODER_WITH_PAST_NAME] = (model, onnx_config_with_past)
@@ -165,15 +159,14 @@ def get_stable_diffusion_models_for_export(
         `Dict[str, Tuple[Union[`PreTrainedModel`, `TFPreTrainedModel`], `OnnxConfig`]: A Dict containing the model and
         onnx configs for the different components of the model.
     """
-    models_for_export = {}
-
     # Text encoder
     text_encoder_config_constructor = TasksManager.get_exporter_config_constructor(
         model=pipeline.text_encoder, exporter="onnx", task="default"
     )
     text_encoder_onnx_config = text_encoder_config_constructor(pipeline.text_encoder.config)
-    models_for_export["text_encoder"] = (pipeline.text_encoder, text_encoder_onnx_config)
-
+    models_for_export = {
+        "text_encoder": (pipeline.text_encoder, text_encoder_onnx_config)
+    }
     # U-NET
     onnx_config_constructor = TasksManager.get_exporter_config_constructor(
         model=pipeline.unet, exporter="onnx", task="semantic-segmentation", model_type="unet"
@@ -235,7 +228,7 @@ def recursive_to_dtype(
         for i, val in enumerate(value):
             value[i] = recursive_to_dtype(val, dtype)
     elif isinstance(value, torch.Tensor):
-        if start_dtype is None or (start_dtype is not None and value.dtype == start_dtype):
+        if start_dtype is None or value.dtype == start_dtype:
             value = value.to(dtype=dtype)
 
     return value

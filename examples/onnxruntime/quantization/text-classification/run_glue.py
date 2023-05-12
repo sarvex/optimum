@@ -320,7 +320,7 @@ def main():
             else:
                 raise ValueError("Need either a GLUE task or a test file for `do_predict`.")
 
-        for key in data_files.keys():
+        for key in data_files:
             logger.info(f"load a local file for {key}: {data_files[key]}")
 
         if data_args.train_file.endswith(".csv"):

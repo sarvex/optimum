@@ -162,11 +162,7 @@ class ORTModelDecoder(ORTModel):
                 Refer to https://huggingface.co/docs/transformers/main/en/main_classes/text_generation#transformers.GenerationMixin.generate.
         """
         if use_io_binding is None:
-            if decoder_session.get_providers()[0] == "CUDAExecutionProvider":
-                use_io_binding = True
-            else:
-                use_io_binding = False
-
+            use_io_binding = decoder_session.get_providers()[0] == "CUDAExecutionProvider"
         self.shared_attributes_init(
             decoder_session,
             use_io_binding=use_io_binding,
@@ -189,17 +185,17 @@ class ORTModelDecoder(ORTModel):
                 f"{self.__class__.__name__} received {', '.join(kwargs.keys())}, but do not accept those arguments."
             )
 
-        if use_cache is True:
+        if use_cache:
             # Auto-detect whether the provided session is a merged non-past / with-past or not
             # TODO: make __init__ private and pass `use_merged` as an argument
             use_merged = "use_cache_branch" in [inp.name for inp in decoder_session.get_inputs()]
 
-            if use_merged is True and decoder_with_past_session is not None:
+            if use_merged and decoder_with_past_session is not None:
                 raise ValueError(
                     "Detected a merged decoder, but decoder_with_past_session was provided."
                     "Please only set decoder_session, or provide a non-merged decoder_session."
                 )
-            if use_cache is True and use_merged is False and decoder_with_past_session is None:
+            if use_cache and not use_merged and decoder_with_past_session is None:
                 raise ValueError(
                     "The parameter use_cache was set as True, but neither decoder_with_past_session was passed"
                     " nor a use_cache branch can be found in the decoder_session."
@@ -214,7 +210,7 @@ class ORTModelDecoder(ORTModel):
                     "Please pass use_cache=True for decoder_with_past_session to be used."
                 )
 
-        if use_cache is False and use_io_binding is True:
+        if not use_cache and use_io_binding is True:
             raise ValueError(
                 "When using CUDAExecutionProvider, the parameters combination use_cache=False, use_io_binding=True"
                 " is not supported. Please either pass use_cache=True, use_io_binding=True (default),"
@@ -231,7 +227,7 @@ class ORTModelDecoder(ORTModel):
         self.decoder_with_past = None
         self.decoder_with_past_model_path = None
         self.decoder_with_past_model_name = None
-        if self.use_cache is True and self.use_merged is False:
+        if self.use_cache and not self.use_merged:
             self.decoder_with_past = ORTDecoder(decoder_with_past_session, self)
             self.decoder_with_past_model_path = Path(decoder_with_past_session._model_path)
             self.decoder_with_past_model_name = self.decoder_with_past_model_path.name
@@ -335,7 +331,7 @@ class ORTModelDecoder(ORTModel):
         model_path = Path(model_id)
 
         # We do not implement the logic for use_cache=False, use_merged=True
-        if use_cache is False:
+        if not use_cache:
             if use_merged is True:
                 raise ValueError(
                     "The parameters combination use_cache=False, use_merged=True is not supported."
@@ -359,7 +355,7 @@ class ORTModelDecoder(ORTModel):
                 use_merged = True
                 decoder_path = decoder_merged_path
             except FileNotFoundError as e:
-                if use_merged is True:
+                if use_merged:
                     raise FileNotFoundError(
                         "The parameter `use_merged=True` was passed to ORTModelForCausalLM.from_pretrained()"
                         " but no ONNX file for a merged decoder could be found in"
@@ -392,7 +388,7 @@ class ORTModelDecoder(ORTModel):
                 )
 
             # If the decoder without / with past has been merged, we do not need to look for any additional file
-            if use_cache is True:
+            if use_cache:
                 if not validate_file_exists(
                     model_id, decoder_with_past_file_name, subfolder=subfolder, revision=revision
                 ):
@@ -430,11 +426,15 @@ class ORTModelDecoder(ORTModel):
             preprocessors = maybe_load_preprocessors(model_id)
         else:
             attribute_name_to_filename = {
-                "last_decoder_model_name": decoder_path.name if use_merged is False else None,
-                "last_decoder_with_past_model_name": decoder_with_past_path.name
-                if (use_cache is True and use_merged is False)
+                "last_decoder_model_name": decoder_path.name
+                if use_merged is False
                 else None,
-                "last_decoder_merged_name": decoder_merged_path.name if use_merged is True else None,
+                "last_decoder_with_past_model_name": decoder_with_past_path.name
+                if use_cache and use_merged is False
+                else None,
+                "last_decoder_merged_name": decoder_merged_path.name
+                if use_merged is True
+                else None,
             }
             paths = {}
             for attr_name, filename in attribute_name_to_filename.items():
@@ -456,7 +456,7 @@ class ORTModelDecoder(ORTModel):
                     hf_hub_download(
                         repo_id=model_id,
                         subfolder=subfolder,
-                        filename=filename + "_data",
+                        filename=f"{filename}_data",
                         use_auth_token=use_auth_token,
                         revision=revision,
                         cache_dir=cache_dir,
@@ -478,12 +478,14 @@ class ORTModelDecoder(ORTModel):
                 decoder_path = new_model_save_dir / paths["last_decoder_model_name"]
                 decoder_without_past_path = new_model_save_dir / paths["last_decoder_model_name"]
 
-                if use_cache is True:
+                if use_cache:
                     decoder_with_past_path = new_model_save_dir / paths["last_decoder_with_past_model_name"]
 
         ort_inference_sessions = cls.load_model(
             decoder_path=decoder_path,
-            decoder_with_past_path=None if use_merged is True or use_cache is False else decoder_with_past_path,
+            decoder_with_past_path=None
+            if use_merged is True or not use_cache
+            else decoder_with_past_path,
             provider=provider,
             session_options=session_options,
             provider_options=provider_options,
@@ -509,7 +511,7 @@ class ORTModelDecoder(ORTModel):
         onnx_paths = []
         if use_merged is False:
             onnx_paths.append(decoder_without_past_path)
-            if use_cache is True:
+            if use_cache:
                 onnx_paths.append(decoder_with_past_path)
         else:
             onnx_paths.append(decoder_merged_path)
@@ -549,10 +551,10 @@ class ORTModelDecoder(ORTModel):
         if task is None:
             task = cls._auto_model_to_task(cls.auto_model_class)
 
-            if use_cache is True:
-                task = task + "-with-past"
+            if use_cache:
+                task = f"{task}-with-past"
 
-        if use_cache is False and use_merged is True:
+        if not use_cache and use_merged:
             raise ValueError(
                 "The incompatible arguments use_cache=False, use_merged=True were passed to ORTModelForCausalLM.from_pretrained()."
                 " Please pass either use_cache=False, use_merged=False to disable past key value caching, or use_cache=True, use_merged=False"
